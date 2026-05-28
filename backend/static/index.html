@@ -1,0 +1,2024 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Source Mapping Tool</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#334155; --muted:#94a3b8;
+    --text:#e2e8f0; --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+    --border:#334155;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:13px;line-height:1.5}
+  a{color:var(--accent);text-decoration:none;cursor:pointer}
+  header{padding:12px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:var(--panel)}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  .back{cursor:pointer;background:var(--panel2);border:none;color:var(--text);padding:5px 10px;border-radius:4px;font-size:12px}
+  .back:hover{background:#475569}
+
+  /* main = project list */
+  .home{padding:22px 28px;max-width:1200px;margin:0 auto}
+  .home h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px}
+  .upload-form{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end}
+  .upload-form .field{display:flex;flex-direction:column}
+  .upload-form .full{grid-column:1/-1}
+  .project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .project-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px;cursor:pointer;transition:border-color .15s}
+  .project-card:hover{border-color:var(--accent)}
+  .project-card h3{margin:0 0 6px;font-size:15px;font-weight:600}
+  .project-card .filename{color:var(--muted);font-size:11px;margin-bottom:10px;word-break:break-all}
+  .project-card .stats{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-bottom:10px}
+  .project-card .stats b{color:var(--text);font-size:15px;display:block}
+  .project-card .actions{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:10px;font-size:11px;color:var(--muted)}
+
+  /* detail */
+  main{display:grid;grid-template-columns:380px 1fr;min-height:calc(100vh - 53px)}
+  .sidebar{border-right:1px solid var(--border);padding:14px 16px;overflow-y:auto;max-height:calc(100vh - 53px)}
+  .content{padding:16px 22px;overflow-y:auto;max-height:calc(100vh - 53px)}
+
+  .section{margin-bottom:18px}
+  .section h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px}
+
+  button{background:var(--accent);color:#0b1220;border:none;padding:7px 12px;border-radius:4px;font-weight:600;cursor:pointer;font-size:12px}
+  button:hover{filter:brightness(1.1)}
+  button.secondary{background:var(--panel2);color:var(--text)}
+  button.danger{background:var(--bad);color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  input[type=file],input[type=text]{background:var(--panel2);color:var(--text);border:1px solid var(--border);padding:6px 8px;border-radius:4px;font-size:12px;width:100%}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px}
+
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border-bottom:1px solid var(--border);padding:6px 8px;text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;background:#1a2438}
+  tr:hover td{background:#1a2438}
+
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-O{background:rgba(34,197,94,.15);color:var(--ok)}
+  .b-X{background:rgba(239,68,68,.15);color:var(--bad)}
+  .b-PARTIAL{background:rgba(245,158,11,.15);color:var(--warn)}
+  .b-NA{background:rgba(148,163,184,.15);color:var(--muted)}
+
+  /* 3단계 상태 배지 */
+  .st{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:.2px;white-space:nowrap}
+  .st-ok{background:rgba(34,197,94,.18);color:#86efac}
+  .st-suspect{background:rgba(239,68,68,.18);color:#fca5a5}
+  .st-unknown{background:rgba(148,163,184,.18);color:#cbd5e1}
+  .label-kr{display:block;font-size:11px;color:var(--muted);margin-top:3px}
+  .ann{display:inline-block;background:#0b1220;color:#a78bfa;padding:1px 6px;border-radius:8px;font-size:10px;margin:1px 2px 1px 0;font-family:Consolas,monospace}
+
+  /* inline AST expansion under a clicked row */
+  .module-table tr.row-expanded > td{background:#1a2438;border-bottom:none}
+  .module-table tr.ast-expansion:hover > td{background:#0b1220}
+  .ast-panel{padding:14px 16px;border-left:3px solid var(--accent);background:#0b1220}
+  .ast-panel > div + div{margin-top:6px}
+  .pill{display:inline-block;background:var(--panel2);padding:2px 7px;border-radius:10px;font-size:11px;margin-right:4px;color:var(--muted)}
+  .pill.front{color:#38bdf8}
+  .pill.api{color:#a78bfa}
+
+  .program-card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;cursor:pointer}
+  .program-card:hover{border-color:var(--accent)}
+  .program-card.active{border-color:var(--accent);background:#1a2438}
+  .program-title{font-weight:600;font-size:13px;margin-bottom:3px}
+  .program-meta{font-size:11px;color:var(--muted);margin-bottom:5px}
+  .program-status{display:flex;gap:6px;font-size:11px}
+
+  .filter-bar{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .filter-bar button{padding:4px 10px;font-size:11px}
+  .filter-bar button.active{background:var(--accent);color:#0b1220}
+
+  .pagination{display:flex;align-items:center;justify-content:space-between;margin-top:10px;font-size:12px;color:var(--muted)}
+  .pagination button{padding:3px 8px;font-size:11px;background:var(--panel2);color:var(--text)}
+  .pagination button:hover:not(:disabled){background:#475569}
+  .pagination .pages{display:flex;gap:4px;flex-wrap:wrap}
+  .pagination .pages button.active{background:var(--accent);color:#0b1220}
+
+  .metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px}
+  .metric{background:#1a2438;border:1px solid var(--border);border-radius:5px;padding:8px 10px}
+  .metric .label{font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:2px}
+  .metric .value{font-size:18px;font-weight:600}
+
+  .row-card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px}
+  details{margin-top:6px}
+  details summary{cursor:pointer;color:var(--accent);font-size:11px;user-select:none}
+  pre{background:#0b1220;border:1px solid var(--border);border-radius:5px;padding:10px;overflow:auto;font-size:11px;max-height:420px}
+  .empty{color:var(--muted);font-style:italic;padding:24px;text-align:center}
+  .stat-summary{display:flex;gap:10px;margin-bottom:12px;font-size:12px;flex-wrap:wrap}
+  .stat-summary .item{background:var(--panel);padding:6px 12px;border-radius:5px;border:1px solid var(--border)}
+  .stat-summary .item b{font-size:15px;margin-right:5px}
+  .msg{margin-top:8px;font-size:11px;color:var(--muted)}
+  .msg.err{color:var(--bad)}
+  .msg.ok{color:var(--ok)}
+
+  /* semantic (JavaParser+SymbolSolver) styling */
+  .sem-panel{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+  .sem-panel h3{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#a78bfa;margin:0 0 8px}
+  .layer-chip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;margin-right:3px;font-family:Consolas,monospace}
+
+  .layer-CONTROLLER{background:rgba(56,189,248,.18);color:#7dd3fc}
+  .layer-SERVICE{background:rgba(168,85,247,.18);color:#c4b5fd}
+  .layer-REPOSITORY{background:rgba(34,197,94,.18);color:#86efac}
+  .layer-MAPPER{background:rgba(245,158,11,.18);color:#fbbf24}
+  .layer-ENTITY{background:rgba(236,72,153,.18);color:#f9a8d4}
+  .layer-DTO{background:rgba(148,163,184,.18);color:#cbd5e1}
+  .layer-CONFIG,.layer-COMPONENT,.layer-UTIL{background:rgba(148,163,184,.15);color:#94a3b8}
+  .layer-UNKNOWN,.layer-EXTERNAL{background:#1a2438;color:#64748b}
+
+  .chain{margin-top:6px;font-family:Consolas,monospace;font-size:11px;padding:8px 12px;background:#0b1220;border-radius:5px;border:1px solid var(--border)}
+  .chain .step{padding:3px 0;display:flex;gap:8px;align-items:center}
+  .chain .arrow{color:#64748b}
+  .chain .leaf{color:var(--ok)}
+  .chain .miss{color:var(--warn)}
+  .delegate-link{cursor:pointer;color:var(--accent);text-decoration:underline dotted;font-family:Consolas,monospace;font-size:11px}
+  .small{font-size:10px;color:var(--muted)}
+  .impl-row{font-family:Consolas,monospace;font-size:11px;padding:2px 0;color:var(--muted)}
+  .impl-row b{color:#86efac;font-weight:600}
+
+  /* unified methods table */
+  .ev-strong{color:#86efac}
+  .ev-weak{color:#fbbf24}
+  .ev-none{color:var(--muted)}
+  .llm-cand{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;background:rgba(168,85,247,.18);color:#c4b5fd;margin-left:4px;cursor:pointer;font-weight:600;border:none}
+  .llm-cand:hover{background:rgba(168,85,247,.32)}
+  .llm-cand[disabled]{cursor:wait;opacity:.6}
+  .llm-result{margin-top:6px;padding:8px 10px;border-radius:5px;background:#0b1220;border-left:3px solid #a78bfa;font-size:11px}
+  .llm-result .top{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .llm-result .v-REAL_DELEGATION{color:#86efac}
+  .llm-result .v-REAL_LOGIC{color:#86efac}
+  .llm-result .v-STUB{color:#fca5a5}
+  .llm-result .v-NAME_MISMATCH{color:#fca5a5}
+  .llm-result .v-UNCLEAR{color:#cbd5e1}
+  .llm-result .reasoning{color:var(--text);margin:3px 0}
+  .llm-result .intent{color:var(--muted);font-style:italic}
+  .llm-result .concern{color:#fbbf24;font-size:10px;display:block;margin-top:2px}
+  .llm-err{color:var(--bad);font-size:11px;margin-top:4px}
+  .ai-mark{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:rgba(168,85,247,.18);color:#c4b5fd;margin-left:4px;cursor:help}
+  .apply-row{display:flex;gap:6px;margin-top:6px;align-items:center;border-top:1px dashed var(--border);padding-top:6px}
+  .btn-apply{background:#86efac;color:#0b1220;border:none;padding:3px 10px;border-radius:3px;font-size:11px;cursor:pointer;font-weight:600}
+  .btn-apply:hover{filter:brightness(.92)}
+  .btn-cancel{background:var(--panel2);color:var(--text);border:none;padding:3px 10px;border-radius:3px;font-size:11px;cursor:pointer}
+  .btn-cancel:hover{background:#475569}
+  .applied-tag{color:#86efac;font-size:11px;font-weight:600}
+
+  .lombok-chip{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;background:rgba(245,158,11,.18);color:#fbbf24;margin-left:6px;cursor:help;font-weight:600}
+  .lombok-note{margin:8px 0;padding:8px 12px;border-radius:5px;background:rgba(245,158,11,.06);border-left:3px solid rgba(245,158,11,.35);font-size:11px;color:var(--muted);line-height:1.6}
+  .lombok-note b{color:#fbbf24}
+
+  /* Project / Program summary card */
+  .sumcard{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:14px}
+  .sumcard h3{margin:0 0 4px;font-size:14px;font-weight:600}
+  .sumcard .sub{color:var(--muted);font-size:11px;margin-bottom:12px}
+  .sumrow{display:grid;grid-template-columns:120px 1fr;gap:10px;padding:6px 0;align-items:center;border-top:1px dashed var(--border)}
+  .sumrow:first-of-type{border-top:none}
+  .sumrow .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .sumrow .val{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;align-items:center}
+  .sumchip{display:inline-flex;align-items:center;gap:4px;background:#0b1220;padding:3px 9px;border-radius:10px;font-size:11px}
+  .sumchip b{font-size:13px;color:var(--text)}
+  .sumchip.ok b{color:#86efac}
+  .sumchip.suspect b{color:#fca5a5}
+  .sumchip.unknown b{color:#cbd5e1}
+  .sumchip.warn b{color:#fbbf24}
+  .sumchip.info b{color:#c4b5fd}
+  .barwrap{flex:1;min-width:200px;height:14px;background:#0b1220;border-radius:3px;overflow:hidden;display:flex}
+  .bar-ok{background:#22c55e}
+  .bar-suspect{background:#ef4444}
+  .bar-unknown{background:#94a3b8}
+  .bar-O{background:#22c55e}
+  .bar-PARTIAL{background:#f59e0b}
+  .bar-X{background:#ef4444}
+  .layer-tag{display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;background:#1a2438;color:var(--muted);margin:2px}
+  .layer-tag b{color:var(--text);margin-left:3px}
+  .class-meta{background:#0b1220;border:1px solid var(--border);border-radius:5px;padding:8px 12px;margin-bottom:8px;font-size:11px}
+  .class-meta b{font-family:Consolas,monospace}
+  .metric-mini{font-family:Consolas,monospace;font-size:11px;line-height:1.4;color:var(--muted);white-space:nowrap}
+  .metric-mini b{color:var(--text);font-weight:600}
+
+  /* spec-issues panel */
+  .issue-banner{background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.35);border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+  .issue-banner .left{color:#fbbf24;font-weight:600}
+  .kind-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-right:4px;font-family:Consolas,monospace}
+  .kind-PACKAGE_DRIFT{background:rgba(245,158,11,.18);color:#fbbf24}
+  .kind-AMBIGUOUS{background:rgba(168,85,247,.18);color:#c4b5fd}
+  .kind-MODULE_MISSING{background:rgba(239,68,68,.18);color:#fca5a5}
+  .issue-card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:8px}
+  .issue-card .head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .issue-card .mod{font-family:Consolas,monospace;font-weight:600;font-size:13px}
+  .issue-card .small{font-size:11px;color:var(--muted)}
+  .diff-row{display:grid;grid-template-columns:80px 1fr;gap:8px;padding:3px 0;font-size:11px;align-items:center;font-family:Consolas,monospace}
+  .diff-row .lbl{color:var(--muted);text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.4px;font-family:inherit}
+  .from-pkg{color:#fca5a5;text-decoration:line-through}
+  .to-pkg{color:#86efac;font-weight:600}
+  .copy-btn{background:var(--panel2);color:var(--text);border:none;padding:2px 7px;border-radius:3px;font-size:10px;cursor:pointer;margin-left:4px}
+  .copy-btn:hover{background:#475569}
+  .candidate{font-family:Consolas,monospace;font-size:11px;padding:2px 0;color:var(--muted)}
+  .candidate b{color:var(--text)}
+  .issues-controls{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+  .issues-controls button{padding:4px 10px;font-size:11px}
+  .issues-controls button.active{background:var(--accent);color:#0b1220}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ HEADER ============ -->
+  <header>
+    <h1 style="cursor:pointer" @click="goHome">Source Mapping Tool</h1>
+    <template v-if="view==='detail' && currentProject">
+      <button class="back" @click="goHome">← 목록</button>
+      <span style="color:var(--muted);font-size:12px">
+        {{ currentProject.name }}
+        <span class="pill" style="margin-left:6px">{{ currentProject.program_count }} programs</span>
+        <span class="pill">{{ currentProject.file_count }} files</span>
+      </span>
+    </template>
+  </header>
+
+  <!-- ============ MAIN VIEW : project list ============ -->
+  <div v-if="view==='list'" class="home">
+    <h2>새 프로그램 목록 업로드</h2>
+    <div class="upload-form">
+      <div class="field">
+        <label>프로젝트 이름</label>
+        <input type="text" v-model="newProjectName" placeholder="dplanex-portal" />
+      </div>
+      <div class="field">
+        <label>스펙 xlsx</label>
+        <input type="file" accept=".xlsx" @change="newSpecFile = $event.target.files[0]" />
+      </div>
+      <div class="field">
+        <label>mapping.yaml (선택)</label>
+        <input type="file" accept=".yaml,.yml" @change="newMappingFile = $event.target.files[0]" />
+      </div>
+      <div>
+        <button @click="createProject" :disabled="!newProjectName || !newSpecFile">업로드 & 파싱</button>
+      </div>
+      <div class="full msg" :class="createMsgKind" v-if="createMsg">{{ createMsg }}</div>
+    </div>
+
+    <h2>업로드된 프로그램 목록 ({{ projects.length }})</h2>
+    <div v-if="!projects.length" class="empty">아직 업로드된 프로젝트가 없습니다. 위 폼에서 xlsx를 업로드하세요.</div>
+    <div v-else class="project-grid">
+      <div v-for="p in projects" :key="p.id" class="project-card" @click="openProject(p.id)">
+        <h3>{{ p.name }}</h3>
+        <div class="filename">📄 {{ p.xlsx_filename }}</div>
+        <div class="stats">
+          <div><b>{{ p.program_count }}</b>프로그램</div>
+          <div><b>{{ p.row_count }}</b>모듈 행</div>
+          <div><b>{{ p.file_count }}</b>소스 파일</div>
+        </div>
+        <div class="actions">
+          <span>{{ p.created_at }}</span>
+          <button class="danger" style="padding:3px 8px;font-size:11px" @click.stop="deleteProject(p.id)">삭제</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DETAIL VIEW : single project ============ -->
+  <main v-else-if="view==='detail'">
+    <aside class="sidebar">
+      <div class="section">
+        <h2>소스 코드 업로드 (zip)</h2>
+        <div class="card">
+          <input type="file" accept=".zip,.tar,.tar.gz,.tgz" multiple @change="onSourceFiles" />
+          <div style="margin-top:8px;display:flex;gap:6px">
+            <button @click="uploadSources" :disabled="!sourceFiles.length || uploading">
+              {{ uploading ? '업로드 중…' : `업로드 (${sourceFiles.length})` }}
+            </button>
+            <button class="secondary" @click="rematch" :disabled="!bundles.length">re-match</button>
+          </div>
+          <div v-if="bundles.length" style="margin-top:8px;font-size:11px;color:var(--muted)">
+            <div v-for="b in bundles" :key="b.id">📦 {{ b.archive_name }} · {{ b.file_count }} files</div>
+          </div>
+          <div v-if="uploadMsg" class="msg" :class="uploadMsgKind">{{ uploadMsg }}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Java Semantic <span style="color:#a78bfa">(JavaParser+SymbolSolver)</span></h2>
+        <div class="card">
+          <button @click="runSemantic"
+                  :disabled="semanticRunning || !bundles.length"
+                  :title="!bundles.length ? '먼저 소스 zip 을 업로드하세요' : ''"
+                  style="width:100%">
+            {{ semanticRunning ? '분석 중…' : (semanticSummary ? '다시 분석' : '분석 실행') }}
+          </button>
+          <div v-if="!bundles.length" class="msg" style="color:#fbbf24">
+            ⓘ 소스 zip 을 먼저 업로드해야 분석할 수 있습니다.
+          </div>
+          <div v-if="semanticSummary" style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.7">
+            <div>📦 클래스 <b style="color:var(--text)">{{ semanticSummary.class_count }}</b>
+                 · 메서드 <b style="color:var(--text)">{{ semanticSummary.method_count }}</b></div>
+            <div>🔗 프로젝트 내부 호출 해석 <b style="color:#86efac">{{ semanticSummary.resolved_calls }}</b>건</div>
+            <div>📄 파일 {{ semanticSummary.parsed_files }} · {{ semanticSummary.duration_ms }}ms</div>
+            <div class="small">최종 실행 {{ semanticSummary.created_at }}</div>
+          </div>
+          <div v-if="semanticMsg" class="msg" :class="semanticMsgKind">{{ semanticMsg }}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>프로그램 필터</h2>
+        <div class="filter-bar">
+          <button :class="{active:filter==='all'}" @click="setFilter('all')">전체 ({{ programs.length }})</button>
+          <button :class="{active:filter==='O'}" @click="setFilter('O')" title="패키지+이름 완전 일치">일치 ({{ countByStatus('O') }})</button>
+          <button :class="{active:filter==='PARTIAL'}" @click="setFilter('PARTIAL')" title="이름은 같지만 패키지가 다름">부분 ({{ countByStatus('PARTIAL') }})</button>
+          <button :class="{active:filter==='X'}" @click="setFilter('X')" title="코드에서 찾을 수 없음">불일치 ({{ countByStatus('X') }})</button>
+        </div>
+        <input type="text" v-model="search" placeholder="검색 (프로그램명 / ID / URL)" />
+
+        <div style="margin-top:10px">
+          <div v-for="p in pagedPrograms" :key="p.program_id"
+               class="program-card" :class="{active:selectedProgramId===p.program_id}"
+               @click="selectProgram(p.program_id)">
+            <div class="program-title">{{ p.program_name || '(이름 없음)' }}</div>
+            <div class="program-meta">
+              {{ p.program_id }}
+              <span v-if="p.category_l1"> · {{ p.category_l1 }}</span>
+              <span v-if="p.category_l2"> / {{ p.category_l2 }}</span>
+            </div>
+            <div class="program-meta" v-if="p.menu_url">🔗 {{ p.menu_url }}</div>
+            <div class="program-status">
+              <span class="badge b-O" v-if="p.found">O {{ p.found }}</span>
+              <span class="badge b-PARTIAL" v-if="p.partial">P {{ p.partial }}</span>
+              <span class="badge b-X" v-if="p.missing">X {{ p.missing }}</span>
+              <span class="badge b-NA" v-if="p.unknown">? {{ p.unknown }}</span>
+            </div>
+          </div>
+          <div v-if="!filteredPrograms.length" class="empty" style="padding:14px">조건에 맞는 프로그램이 없습니다</div>
+        </div>
+
+        <div class="pagination" v-if="pageCount > 1">
+          <button :disabled="currentPage===1" @click="currentPage=1">«</button>
+          <button :disabled="currentPage===1" @click="currentPage--">‹</button>
+          <div class="pages">
+            <button v-for="n in pageNumbers" :key="n"
+                    :class="{active:n===currentPage}"
+                    :disabled="n==='…'"
+                    @click="typeof n==='number' && (currentPage=n)">{{ n }}</button>
+          </div>
+          <button :disabled="currentPage===pageCount" @click="currentPage++">›</button>
+          <button :disabled="currentPage===pageCount" @click="currentPage=pageCount">»</button>
+        </div>
+        <div class="pagination" v-if="filteredPrograms.length">
+          <span>총 {{ filteredPrograms.length }}개 · 페이지 {{ currentPage }} / {{ pageCount || 1 }} · {{ pageSize }}개씩</span>
+        </div>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div v-if="!selectedProgram">
+        <!-- ============ 프로젝트 전체 요약 카드 ============ -->
+        <div v-if="projectSummary" class="sumcard">
+          <h3>프로젝트 요약</h3>
+          <div class="sub">
+            {{ projectSummary.totals.modules }} 모듈 ·
+            {{ projectSummary.totals.files }} 파일 ·
+            {{ projectSummary.totals.methods }} 메서드
+          </div>
+
+          <div class="sumrow">
+            <div class="lbl">매칭</div>
+            <div class="val">
+              <span class="sumchip ok">일치 <b>{{ projectSummary.mapping_status.O }}</b></span>
+              <span class="sumchip warn">부분 <b>{{ projectSummary.mapping_status.PARTIAL }}</b></span>
+              <span class="sumchip suspect">불일치 <b>{{ projectSummary.mapping_status.X }}</b></span>
+              <div class="barwrap" :title="sumBarTip(projectSummary.mapping_status, ['O','PARTIAL','X'])">
+                <div v-for="k in ['O','PARTIAL','X']" :key="k"
+                     :class="'bar-'+k"
+                     :style="{width: sumPct(projectSummary.mapping_status, k) + '%'}"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sumrow">
+            <div class="lbl">메서드 상태</div>
+            <div class="val">
+              <span class="sumchip ok">정상 <b>{{ projectSummary.method_status_effective.ok }}</b></span>
+              <span class="sumchip suspect">의심 <b>{{ projectSummary.method_status_effective.suspect }}</b></span>
+              <span class="sumchip unknown">알수없음 <b>{{ projectSummary.method_status_effective.unknown }}</b></span>
+              <div class="barwrap" :title="sumBarTip(projectSummary.method_status_effective, ['ok','suspect','unknown'])">
+                <div v-for="k in ['ok','suspect','unknown']" :key="k"
+                     :class="'bar-'+k"
+                     :style="{width: sumPct(projectSummary.method_status_effective, k) + '%'}"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="anyStub(projectSummary.stubs)">
+            <div class="lbl">스텁 분류</div>
+            <div class="val">
+              <span v-if="projectSummary.stubs.STUB_PLACEHOLDER" class="sumchip suspect">임시반환 <b>{{ projectSummary.stubs.STUB_PLACEHOLDER }}</b></span>
+              <span v-if="projectSummary.stubs.STUB_EMPTY" class="sumchip suspect">빈본문 <b>{{ projectSummary.stubs.STUB_EMPTY }}</b></span>
+              <span v-if="projectSummary.stubs.STUB_NOT_IMPL" class="sumchip suspect">미구현예외 <b>{{ projectSummary.stubs.STUB_NOT_IMPL }}</b></span>
+              <span v-if="projectSummary.stubs.STUB_DEBUG_ONLY" class="sumchip suspect">디버그만 <b>{{ projectSummary.stubs.STUB_DEBUG_ONLY }}</b></span>
+            </div>
+          </div>
+
+          <div class="sumrow">
+            <div class="lbl">계층 분포</div>
+            <div class="val">
+              <span v-for="(n, layer) in sortedLayers(projectSummary.method_layer)" :key="layer"
+                    class="layer-tag">{{ layer }} <b>{{ n }}</b></span>
+            </div>
+          </div>
+
+          <div class="sumrow">
+            <div class="lbl">AI 분석</div>
+            <div class="val">
+              <span class="sumchip info">분석 <b>{{ projectSummary.llm.analyzed }}</b></span>
+              <span class="sumchip ok">적용 <b>{{ projectSummary.llm.applied }}</b></span>
+              <span v-if="projectSummary.llm.overrode_to_ok" class="sumchip ok">정정 → 정상 <b>{{ projectSummary.llm.overrode_to_ok }}</b></span>
+              <span v-if="projectSummary.llm.overrode_to_suspect" class="sumchip suspect">정정 → 의심 <b>{{ projectSummary.llm.overrode_to_suspect }}</b></span>
+              <span v-if="projectSummary.llm.analyzed === 0" class="small">아직 AI 분석 안 함</span>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="projectSummary.spec_issues && projectSummary.spec_issues.total">
+            <div class="lbl">산출문서</div>
+            <div class="val">
+              <span class="sumchip warn">전체 <b>{{ projectSummary.spec_issues.total }}</b></span>
+              <span v-if="projectSummary.spec_issues.PACKAGE_DRIFT" class="sumchip warn">패키지 정정 <b>{{ projectSummary.spec_issues.PACKAGE_DRIFT }}</b></span>
+              <span v-if="projectSummary.spec_issues.AMBIGUOUS" class="sumchip warn">후보 다수 <b>{{ projectSummary.spec_issues.AMBIGUOUS }}</b></span>
+              <span v-if="projectSummary.spec_issues.MODULE_MISSING" class="sumchip suspect">모듈 누락 <b>{{ projectSummary.spec_issues.MODULE_MISSING }}</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-summary">
+          <div class="item"><b>{{ programs.length }}</b>프로그램</div>
+          <div class="item"><b style="color:#86efac">{{ countByStatus('O') }}</b>일치</div>
+          <div class="item"><b style="color:#fbbf24">{{ countByStatus('PARTIAL') }}</b>부분 일치</div>
+          <div class="item"><b style="color:#fca5a5">{{ countByStatus('X') }}</b>불일치</div>
+          <div class="item"><b>{{ bundles.length }}</b>업로드된 zip</div>
+          <div class="item" v-if="issueSummary && issueSummary.total">
+            <b style="color:#fbbf24">{{ issueSummary.total }}</b>산출문서 수정 권고
+            <a :href="`/api/projects/${currentProjectId}/spec-issues.csv`" download
+               style="margin-left:6px;font-size:11px" title="전체 목록 CSV 다운로드">📥</a>
+          </div>
+        </div>
+        <div class="empty">왼쪽 목록에서 프로그램을 선택하세요.</div>
+      </div>
+
+      <div v-else>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px">
+          <div>
+            <h2 style="margin:0 0 4px;font-size:18px">{{ selectedProgram.program_name }}</h2>
+            <div style="color:var(--muted);font-size:12px">
+              <span class="pill">{{ selectedProgram.program_id }}</span>
+              <span class="pill" v-if="selectedProgram.category_l1">{{ selectedProgram.category_l1 }}</span>
+              <span class="pill" v-if="selectedProgram.category_l2">{{ selectedProgram.category_l2 }}</span>
+              <span class="pill" v-if="selectedProgram.menu_url">🔗 {{ selectedProgram.menu_url }}</span>
+            </div>
+          </div>
+          <button @click="onAiReviewClick"
+                  disabled
+                  title="추후 구현 예정"
+                  style="white-space:nowrap;padding:8px 14px;font-size:12px;opacity:.55;cursor:not-allowed">
+            🤖 AI 분석
+          </button>
+        </div>
+
+        <!-- ============ 프로그램 요약 카드 ============ -->
+        <div v-if="programSummary" class="sumcard">
+          <h3>프로그램 요약</h3>
+          <div class="sub">
+            {{ programSummary.totals.modules }} 모듈 ·
+            {{ programSummary.totals.files }} 파일 ·
+            {{ programSummary.totals.methods }} 메서드
+          </div>
+
+          <div class="sumrow">
+            <div class="lbl">매칭</div>
+            <div class="val">
+              <span class="sumchip ok">일치 <b>{{ programSummary.mapping_status.O }}</b></span>
+              <span class="sumchip warn">부분 <b>{{ programSummary.mapping_status.PARTIAL }}</b></span>
+              <span class="sumchip suspect">불일치 <b>{{ programSummary.mapping_status.X }}</b></span>
+              <div class="barwrap">
+                <div v-for="k in ['O','PARTIAL','X']" :key="k"
+                     :class="'bar-'+k"
+                     :style="{width: sumPct(programSummary.mapping_status, k) + '%'}"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="programSummary.totals.methods">
+            <div class="lbl">메서드 상태</div>
+            <div class="val">
+              <span class="sumchip ok">정상 <b>{{ programSummary.method_status_effective.ok }}</b></span>
+              <span class="sumchip suspect">의심 <b>{{ programSummary.method_status_effective.suspect }}</b></span>
+              <span class="sumchip unknown">알수없음 <b>{{ programSummary.method_status_effective.unknown }}</b></span>
+              <div class="barwrap">
+                <div v-for="k in ['ok','suspect','unknown']" :key="k"
+                     :class="'bar-'+k"
+                     :style="{width: sumPct(programSummary.method_status_effective, k) + '%'}"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="anyStub(programSummary.stubs)">
+            <div class="lbl">스텁 분류</div>
+            <div class="val">
+              <span v-if="programSummary.stubs.STUB_PLACEHOLDER" class="sumchip suspect">임시반환 <b>{{ programSummary.stubs.STUB_PLACEHOLDER }}</b></span>
+              <span v-if="programSummary.stubs.STUB_EMPTY" class="sumchip suspect">빈본문 <b>{{ programSummary.stubs.STUB_EMPTY }}</b></span>
+              <span v-if="programSummary.stubs.STUB_NOT_IMPL" class="sumchip suspect">미구현예외 <b>{{ programSummary.stubs.STUB_NOT_IMPL }}</b></span>
+              <span v-if="programSummary.stubs.STUB_DEBUG_ONLY" class="sumchip suspect">디버그만 <b>{{ programSummary.stubs.STUB_DEBUG_ONLY }}</b></span>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="Object.keys(programSummary.method_layer||{}).length">
+            <div class="lbl">계층 분포</div>
+            <div class="val">
+              <span v-for="(n, layer) in sortedLayers(programSummary.method_layer)" :key="layer"
+                    class="layer-tag">{{ layer }} <b>{{ n }}</b></span>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="programSummary.llm.analyzed">
+            <div class="lbl">AI 분석</div>
+            <div class="val">
+              <span class="sumchip info">분석 <b>{{ programSummary.llm.analyzed }}</b></span>
+              <span class="sumchip ok">적용 <b>{{ programSummary.llm.applied }}</b></span>
+              <span v-if="programSummary.llm.overrode_to_ok" class="sumchip ok">정정 → 정상 <b>{{ programSummary.llm.overrode_to_ok }}</b></span>
+              <span v-if="programSummary.llm.overrode_to_suspect" class="sumchip suspect">정정 → 의심 <b>{{ programSummary.llm.overrode_to_suspect }}</b></span>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="programSummary.spec_issues && programSummary.spec_issues.total">
+            <div class="lbl">산출문서</div>
+            <div class="val">
+              <span class="sumchip warn">전체 <b>{{ programSummary.spec_issues.total }}</b></span>
+              <span v-if="programSummary.spec_issues.PACKAGE_DRIFT" class="sumchip warn">패키지 정정 <b>{{ programSummary.spec_issues.PACKAGE_DRIFT }}</b></span>
+              <span v-if="programSummary.spec_issues.AMBIGUOUS" class="sumchip warn">후보 다수 <b>{{ programSummary.spec_issues.AMBIGUOUS }}</b></span>
+              <span v-if="programSummary.spec_issues.MODULE_MISSING" class="sumchip suspect">모듈 누락 <b>{{ programSummary.spec_issues.MODULE_MISSING }}</b></span>
+            </div>
+          </div>
+        </div>
+
+        <h2 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin:14px 0 8px">모듈 목록</h2>
+        <table class="module-table">
+          <thead>
+            <tr>
+              <th>kind</th><th>package / 위치</th><th>모듈명</th>
+              <th>설명</th><th>dev</th><th>매칭</th><th>파일</th><th>AST</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="r in selectedProgram.rows" :key="r.id">
+              <tr :class="{'row-expanded':!!astByRow[r.id]}">
+                <td><span class="pill" :class="r.kind_norm">{{ r.kind || '-' }}</span></td>
+                <td style="font-family:Consolas,monospace;font-size:11px;max-width:280px;word-break:break-all">{{ r.package || '-' }}</td>
+                <td>{{ r.module_name || '-' }}</td>
+                <td style="max-width:200px">{{ r.description || '-' }}</td>
+                <td>{{ r.dev_type || '-' }}</td>
+                <td>
+                  <span class="badge" :class="'b-' + (r.status || 'NA')">{{ statusLabel(r.status) }}</span>
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px" :title="r.match_strategy || ''">{{ strategyLabel(r.match_strategy) }}</div>
+                </td>
+                <td style="font-family:Consolas,monospace;font-size:11px;max-width:240px;word-break:break-all">{{ r.rel_path || '-' }}</td>
+                <td>
+                  <button v-if="r.status==='O' || r.status==='PARTIAL' || issuesByRow[r.id]"
+                          @click="toggleAst(r.id)"
+                          class="secondary" style="padding:3px 8px;font-size:11px">
+                    {{ astByRow[r.id] ? '닫기 ▴' : (issuesByRow[r.id] && r.status==='X' ? '권고 ▾' : '분석 ▾') }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="astByRow[r.id]" class="ast-expansion">
+                <td :colspan="8" style="padding:0;background:#0b1220">
+                  <div class="ast-panel">
+
+                    <!-- ====== Inline spec-issue explanation (if any) ====== -->
+                    <div v-if="issuesByRow[r.id]" class="issue-card" style="margin:0 0 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35)">
+                      <div class="head">
+                        <span class="kind-chip" :class="'kind-' + issuesByRow[r.id].kind">{{ issueKindLabel(issuesByRow[r.id].kind) }}</span>
+                        <span class="small">산출문서와 코드가 일치하지 않습니다 — 수정 권고</span>
+                      </div>
+
+                      <template v-if="issuesByRow[r.id].kind==='PACKAGE_DRIFT'">
+                        <div class="diff-row">
+                          <div class="lbl">산출문서</div>
+                          <div><span class="from-pkg">{{ issuesByRow[r.id].spec_package }}</span></div>
+                        </div>
+                        <div class="diff-row">
+                          <div class="lbl">실제 코드</div>
+                          <div>
+                            <span class="to-pkg">{{ issuesByRow[r.id].actual_package }}</span>
+                            <button class="copy-btn" @click="copy(issuesByRow[r.id].actual_package)">복사</button>
+                          </div>
+                        </div>
+                        <div class="diff-row">
+                          <div class="lbl">파일</div>
+                          <div class="small">{{ issuesByRow[r.id].actual_path }}</div>
+                        </div>
+                        <div class="small" style="margin-top:6px">💡 {{ issuesByRow[r.id].suggestion }}</div>
+                      </template>
+
+                      <template v-else-if="issuesByRow[r.id].kind==='AMBIGUOUS'">
+                        <div class="diff-row">
+                          <div class="lbl">산출문서</div>
+                          <div><span class="from-pkg">{{ issuesByRow[r.id].spec_package }}</span></div>
+                        </div>
+                        <div class="diff-row">
+                          <div class="lbl">후보</div>
+                          <div>
+                            <div v-for="c in issuesByRow[r.id].candidates" :key="c.fqcn" class="candidate">
+                              → <b>{{ c.fqcn }}</b>
+                              <button class="btn-apply" style="padding:2px 8px;margin-left:6px"
+                                      @click="selectCandidate(r.id, c.fqcn)"
+                                      title="이 파일을 이 모듈의 정답으로 영구 매핑 (re-match 해도 유지)">선택</button>
+                              <button class="copy-btn" @click="copy(c.package)" title="산출문서 xlsx 에 붙여넣기 용도">패키지 복사</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="small" style="margin-top:6px">💡 {{ issuesByRow[r.id].suggestion }}</div>
+                      </template>
+
+                      <template v-else-if="issuesByRow[r.id].kind==='MODULE_MISSING'">
+                        <div class="diff-row">
+                          <div class="lbl">산출문서</div>
+                          <div><span class="mod">{{ issuesByRow[r.id].module_name }}</span> <span class="small">in {{ issuesByRow[r.id].spec_package }}</span></div>
+                        </div>
+                        <div v-if="(issuesByRow[r.id].similar_names||[]).length" class="diff-row">
+                          <div class="lbl">유사 후보</div>
+                          <div>
+                            <div v-for="s in dedupeBy(issuesByRow[r.id].similar_names, 'fqcn')" :key="s.fqcn" class="candidate">
+                              ~ <b>{{ s.simple_name }}</b> <span class="small">({{ s.fqcn }})</span>
+                              <button class="btn-apply" style="padding:2px 8px;margin-left:6px"
+                                      @click="selectCandidate(r.id, s.fqcn)"
+                                      title="이 파일을 이 모듈의 정답으로 영구 매핑">선택</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div v-else class="small" style="margin-top:6px">유사 이름 후보 없음 — 완전히 삭제되었을 가능성</div>
+                        <div class="small" style="margin-top:6px">💡 {{ issuesByRow[r.id].suggestion }}</div>
+                      </template>
+                    </div>
+
+                    <div v-if="astByRow[r.id].ast && astByRow[r.id].ast.error" style="color:var(--bad);padding:12px">
+                      {{ astByRow[r.id].ast.error }}
+                    </div>
+                    <div v-else-if="astByRow[r.id].ast">
+                      <div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                        <span style="font-size:11px;color:var(--muted);margin-right:4px">메서드 상태 요약</span>
+                        <span v-for="m in statusMix(astByRow[r.id].ast.functions, r.id)" :key="m.status"
+                              class="st" :class="'st-' + m.status"
+                              :title="m.detail">{{ m.label }} × {{ m.count }}</span>
+                        <span v-if="!astByRow[r.id].ast.functions.length" style="color:var(--muted);font-size:11px">메서드 없음</span>
+                      </div>
+                      <div class="metric-grid">
+                        <div class="metric"><div class="label">total lines</div><div class="value">{{ astByRow[r.id].ast.file_metrics.total_lines }}</div></div>
+                        <div class="metric"><div class="label">code</div><div class="value">{{ astByRow[r.id].ast.file_metrics.code_lines }}</div></div>
+                        <div class="metric"><div class="label">comment</div><div class="value">{{ astByRow[r.id].ast.file_metrics.comment_lines }}</div></div>
+                        <div class="metric"><div class="label">blank</div><div class="value">{{ astByRow[r.id].ast.file_metrics.blank_lines }}</div></div>
+                        <div class="metric"><div class="label">comment %</div><div class="value">{{ (astByRow[r.id].ast.file_metrics.comment_ratio*100).toFixed(1) }}</div></div>
+                        <div class="metric"><div class="label">classes</div><div class="value">{{ astByRow[r.id].ast.classes.length }}</div></div>
+                        <div class="metric"><div class="label">functions</div><div class="value">{{ astByRow[r.id].ast.functions.length }}</div></div>
+                        <div class="metric"><div class="label">lang</div><div class="value" style="font-size:13px">{{ astByRow[r.id].ast.lang }}<span v-if="astByRow[r.id].ast.parsed_as !== astByRow[r.id].ast.lang"> ({{ astByRow[r.id].ast.parsed_as }})</span></div></div>
+                      </div>
+
+                      <div v-if="astByRow[r.id].ast.classes.length">
+                        <h2 style="font-size:11px;color:var(--muted);text-transform:uppercase;margin:6px 0"
+                            title="자바 기준: class / interface / enum / record 모두 포함">타입 선언 (class · interface · enum · record)</h2>
+                        <table>
+                          <thead><tr><th>name</th><th>kind</th><th>annotations</th><th>lines</th></tr></thead>
+                          <tbody>
+                            <tr v-for="c in astByRow[r.id].ast.classes" :key="c.start_line + ':' + c.name">
+                              <td>
+                                <b>{{ c.name }}</b>
+                                <span v-if="isLombokClass(c)" class="lombok-chip"
+                                      :title="'Lombok 자동생성: ' + lombokHints(c).join(', ') + '\n→ 컴파일 시 메서드가 생성되며 소스에는 보이지 않음'">
+                                  🔧 Lombok
+                                </span>
+                              </td>
+                              <td><span :title="kindDesc(c.kind) + ' (raw: ' + c.kind + ')'">{{ kindLabel(c.kind) }}</span></td>
+                              <td>
+                                <span v-for="a in (c.annotations||[])" :key="a" class="ann">@{{ a }}</span>
+                                <span v-if="!(c.annotations||[]).length" style="color:var(--muted)">—</span>
+                              </td>
+                              <td>{{ c.start_line }}–{{ c.end_line }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+
+                        <!-- Explanatory note for Lombok-only files -->
+                        <div v-if="fileHasLombokOnly(astByRow[r.id].ast)" class="lombok-note">
+                          <b>ℹ Lombok 자동생성 파일</b> — 위 클래스들은
+                          <code>@Getter</code> / <code>@Setter</code> / <code>@Builder</code> /
+                          <code>@*Constructor</code> / <code>@ToString</code> 같은 Lombok 어노테이션으로
+                          getter·setter·생성자·toString() 등이 <b>컴파일 시점에 자동 생성</b>됩니다.
+                          정적 분석기(tree-sitter / JavaParser)는 소스 텍스트만 보므로
+                          "메서드 0개" 로 표시되지만 <b>런타임에는 정상 동작</b>합니다.
+                          DTO/Entity 파일에서 흔한 정상 패턴이며 산출문서 검증상 문제 없음.
+                        </div>
+                      </div>
+
+                      <!-- ====== 통합 분석 표 (tree-sitter + JavaParser+SymbolSolver) ====== -->
+                      <div v-if="astByRow[r.id].ast.functions.length" style="margin-top:10px">
+
+                        <!-- Class header (semantic 인 경우만 의미 있음) -->
+                        <div v-if="semByRow[r.id] && semByRow[r.id].found" class="class-meta">
+                          <span class="layer-chip"
+                                :class="'layer-' + layerCssClass(deriveLayer(semByRow[r.id].class.layer, semByRow[r.id].class.fqcn))">
+                            {{ deriveLayer(semByRow[r.id].class.layer, semByRow[r.id].class.fqcn) }}
+                          </span>
+                          <b>{{ semByRow[r.id].class.fqcn }}</b>
+                          <span class="small">· {{ semByRow[r.id].class.is_interface ? 'interface' : 'class' }}</span>
+                          <span v-if="(semByRow[r.id].class.implements||[]).length" class="small">
+                            · implements: {{ semByRow[r.id].class.implements.join(', ') }}
+                          </span>
+                          <!-- interface→impl -->
+                          <div v-if="semByRow[r.id].class.is_interface && Object.keys(semByRow[r.id].implementations||{}).length" style="margin-top:6px">
+                            <div class="small">이 인터페이스를 구현하는 클래스:</div>
+                            <div v-for="(impls, iface) in semByRow[r.id].implementations" :key="iface">
+                              <div v-for="impl in impls" :key="impl" class="impl-row">→ <b>{{ impl }}</b></div>
+                            </div>
+                          </div>
+                          <div v-if="semByRow[r.id].has_duplicate_fqcn" class="small" style="color:var(--warn);margin-top:4px">
+                            ⚠ 같은 클래스 이름(FQCN)이 다른 zip 에도 존재함 — 이 파일의 메서드 {{ semByRow[r.id].method_count_in_file }}개만 표시 (전체 {{ semByRow[r.id].method_count_total }}개)
+                          </div>
+                        </div>
+                        <div v-else-if="semByRow[r.id] === null" class="class-meta" style="color:var(--muted)">
+                          ⓘ Semantic 분석 결과 없음 — {{ semanticSummary ? '자바 파일이 아니거나 분석 시점 이후 파일 변경' : '사이드바에서 "분석 실행"을 먼저 클릭하세요' }}
+                        </div>
+
+                        <h2 style="font-size:11px;color:var(--muted);text-transform:uppercase;margin:6px 0">Methods / Functions</h2>
+                        <div style="overflow-x:auto">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>메서드</th>
+                                <th>상태</th>
+                                <th>layer</th>
+                                <th>어노테이션</th>
+                                <th title="SLOC / Cyclomatic Complexity / Statements">본문</th>
+                                <th title="fan-out (호출하는 메서드 수) / fan-in (이 메서드를 호출하는 곳 개수)">호출</th>
+                                <th>근거 / 위임 대상</th>
+                                <th>lines</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr v-for="fn in astByRow[r.id].ast.functions" :key="fn.start_line + ':' + fn.name">
+                                <td>
+                                  <b>{{ fn.name }}</b>
+                                  <span v-if="isLLMCandidate(fn, getSem(r.id, fn))"
+                                        class="llm-cand"
+                                        :title="'위임 판정이지만 호출 대상 미해석 — LLM 으로 의도 검증 후보'">🤖?</span>
+                                  <div class="small" v-if="(getSem(r.id, fn) || {}).throws_not_impl">⚠ throws NotImpl</div>
+                                </td>
+                                <td :title="`verdict: ${fn.verdict} / body: ${fn.body_class}`">
+                                  <span class="st" :class="'st-' + effectiveStatus(r.id, fn)">{{ effectiveStatusKr(r.id, fn) }}</span>
+                                  <span v-if="isLlmApplied(r.id, fn)" class="ai-mark"
+                                        :title="`AI 판정: ${llmVerdictLabel(llmResultFor(r.id, fn).verdict)} (신뢰도 ${Math.round((llmResultFor(r.id, fn).confidence||0)*100)}%)`">
+                                    🤖 {{ Math.round((llmResultFor(r.id, fn).confidence||0)*100) }}%
+                                  </span>
+                                  <span class="label-kr">{{ effectiveLabel(r.id, fn) }}</span>
+                                </td>
+                                <td>
+                                  <span v-if="getSem(r.id, fn)" class="layer-chip"
+                                        :class="'layer-' + layerCssClass(deriveLayer(getSem(r.id, fn).layer, getSem(r.id, fn).class_fqcn))">
+                                    {{ deriveLayer(getSem(r.id, fn).layer, getSem(r.id, fn).class_fqcn) }}
+                                  </span>
+                                  <span v-else class="small">—</span>
+                                </td>
+                                <td>
+                                  <span v-for="a in (fn.annotations||[])" :key="a" class="ann">@{{ a }}</span>
+                                  <span v-if="!(fn.annotations||[]).length" class="small">—</span>
+                                </td>
+                                <td>
+                                  <div class="metric-mini">
+                                    sloc=<b>{{ fn.sloc }}</b><br>
+                                    cc=<b>{{ fn.cyclomatic_complexity }}</b><br>
+                                    stmts=<b>{{ fn.statement_count }}</b>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div class="metric-mini">
+                                    out=<b>{{ fn.fan_out }}</b><br>
+                                    in=<b>{{ (getSem(r.id, fn) || {}).fan_in_count != null ? getSem(r.id, fn).fan_in_count : '-' }}</b>
+                                  </div>
+                                </td>
+                                <td>
+                                  <!-- 근거 cell -->
+                                  <template v-if="getSem(r.id, fn) && getSem(r.id, fn).delegation_target">
+                                    <span class="delegate-link" @click="loadChain(r.id, getSem(r.id, fn).fqsig)">
+                                      {{ shortSig(getSem(r.id, fn).delegation_target) }}
+                                    </span>
+                                    <span v-if="getSem(r.id, fn).delegation_target_layer"
+                                          class="layer-chip"
+                                          :class="'layer-' + layerCssClass(deriveLayer(getSem(r.id, fn).delegation_target_layer, fqcnFromSig(getSem(r.id, fn).delegation_target)))"
+                                          style="margin-left:4px">
+                                      {{ deriveLayer(getSem(r.id, fn).delegation_target_layer, fqcnFromSig(getSem(r.id, fn).delegation_target)) }}
+                                    </span>
+                                    <span class="small ev-strong">  sloc={{ Math.max(1, getSem(r.id, fn).delegation_target_sloc) }}</span>
+                                  </template>
+                                  <template v-else-if="isLLMCandidate(fn, getSem(r.id, fn))">
+                                    <!-- (a) no cached result OR session-dismissed: show analyze button -->
+                                    <div v-if="!llmResultFor(r.id, fn) || isLlmDismissed(r.id, getSem(r.id, fn).fqsig)">
+                                      <template v-if="llmCandidateReason(fn, getSem(r.id, fn)) === 'UNRESOLVED_DELEGATION'">
+                                        <span class="small ev-weak">⚠ 위임 대상 미해석</span>
+                                        <div class="small ev-weak">(외부 lib 또는 동적 dispatch)</div>
+                                      </template>
+                                      <template v-else-if="llmCandidateReason(fn, getSem(r.id, fn)) === 'STATIC_SUSPECT'">
+                                        <span class="small ev-weak">⚠ 정적 의심: {{ fn.label_kr }}</span>
+                                        <div class="small ev-weak">(AI 로 2차 검증 권장)</div>
+                                      </template>
+                                      <template v-else-if="llmCandidateReason(fn, getSem(r.id, fn)) === 'STATIC_PUNTED'">
+                                        <span class="small ev-weak">⚠ 정적 분석 분류 보류</span>
+                                        <div class="small ev-weak">(짧지만 패턴 분류 불가 — 의도 확인 필요)</div>
+                                      </template>
+                                      <template v-else-if="llmCandidateReason(fn, getSem(r.id, fn)) === 'OPAQUE_CALLS'">
+                                        <span class="small ev-weak">⚠ 호출 추적 불가</span>
+                                        <div class="small ev-weak">(본문에 호출 있으나 대상 0% 해석 — AI 본문 해석 권장)</div>
+                                      </template>
+                                      <template v-else>
+                                        <span class="small ev-weak">⚠ 검증 필요</span>
+                                      </template>
+                                      <button class="llm-cand"
+                                              :disabled="isLlmLoading(r.id, getSem(r.id, fn).fqsig) || anyLlmInFlight"
+                                              @click="runLlmFor(r.id, getSem(r.id, fn).fqsig)"
+                                              :title="anyLlmInFlight && !isLlmLoading(r.id, getSem(r.id, fn).fqsig) ? '다른 AI 분석 진행 중 — 끝나면 다시 클릭' : 'qwen2.5-coder:7b 로컬 호출 (약 10~20초)'">
+                                        {{ isLlmLoading(r.id, getSem(r.id, fn).fqsig) ? '⏳ AI 분석 중…' :
+                                           (anyLlmInFlight ? '⌛ 대기' : '🤖 AI 분석') }}
+                                      </button>
+                                    </div>
+                                    <!-- (b) cached result present and not dismissed -->
+                                    <div v-else class="llm-result">
+                                      <div class="top">
+                                        <span :class="'v-' + (llmResultFor(r.id, fn).verdict || 'UNCLEAR')"
+                                              style="font-weight:600">
+                                          {{ llmVerdictLabel(llmResultFor(r.id, fn).verdict) }}
+                                        </span>
+                                        <span class="small" v-if="llmResultFor(r.id, fn).confidence != null">
+                                          신뢰도 {{ Math.round(llmResultFor(r.id, fn).confidence * 100) }}%
+                                        </span>
+                                        <a class="small" style="margin-left:auto"
+                                           :style="{opacity: anyLlmInFlight ? 0.4 : 1, pointerEvents: anyLlmInFlight ? 'none' : 'auto'}"
+                                           @click="runLlmFor(r.id, getSem(r.id, fn).fqsig, true)"
+                                           :title="anyLlmInFlight ? '다른 AI 분석 진행 중' : '다시 분석 (캐시 무시)'">↺</a>
+                                      </div>
+                                      <div v-if="llmResultFor(r.id, fn).error" class="llm-err">
+                                        ✗ {{ llmResultFor(r.id, fn).error }}
+                                      </div>
+                                      <div v-else>
+                                        <div class="reasoning">{{ llmResultFor(r.id, fn).reasoning }}</div>
+                                        <div v-if="llmResultFor(r.id, fn).suggested_target_intent" class="intent">
+                                          💡 추정 역할: {{ llmResultFor(r.id, fn).suggested_target_intent }}
+                                        </div>
+                                        <div v-for="cc in (llmResultFor(r.id, fn).concerns || [])" :key="cc" class="concern">
+                                          ⚠ {{ cc }}
+                                        </div>
+                                      </div>
+                                      <!-- apply / cancel row -->
+                                      <div class="apply-row" v-if="!llmResultFor(r.id, fn).error">
+                                        <template v-if="isLlmApplied(r.id, fn)">
+                                          <span class="applied-tag">✓ AI 판정 적용됨</span>
+                                          <a class="small" style="margin-left:auto"
+                                             @click="unapplyLlm(r.id, getSem(r.id, fn).fqsig)">적용 취소</a>
+                                        </template>
+                                        <template v-else>
+                                          <button class="btn-apply"
+                                                  @click="applyLlm(r.id, getSem(r.id, fn).fqsig)"
+                                                  title="이 AI 판정을 메서드 상태로 반영 (영구 저장)">적용</button>
+                                          <button class="btn-cancel"
+                                                  @click="dismissLlm(r.id, getSem(r.id, fn).fqsig)"
+                                                  title="이 AI 분석 결과를 영구 삭제 (새로고침 후에도 사라짐). 필요하면 다시 분석할 수 있음.">취소</button>
+                                        </template>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template v-else-if="getSem(r.id, fn) && (getSem(r.id, fn).calls||[]).length">
+                                    <span class="small">
+                                      <b>{{ (getSem(r.id, fn).calls||[]).filter(c=>c.resolved).length }}</b>/{{ getSem(r.id, fn).calls.length }} 호출 해석
+                                    </span>
+                                    <div v-if="evidenceCalls(getSem(r.id, fn)).length" class="small ev-none">
+                                      <div v-for="c in evidenceCalls(getSem(r.id, fn))" :key="c.target_fqsig">
+                                        → {{ shortSig(c.target_fqsig) }}
+                                        <span class="layer-chip"
+                                              :class="'layer-' + layerCssClass(deriveLayer(c.target_layer, c.target_class_fqcn))"
+                                              style="margin-left:3px">{{ deriveLayer(c.target_layer, c.target_class_fqcn) }}</span>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <template v-else>
+                                    <span v-if="staticBasis(fn)" class="small"
+                                          :title="'정적 분석 판정 근거 (body_class=' + fn.body_class + ')'">
+                                      <span class="ev-strong">✓ 정적:</span>
+                                      <span class="ev-none"> {{ staticBasis(fn) }}</span>
+                                    </span>
+                                    <span v-else class="small ev-none">—</span>
+                                  </template>
+                                </td>
+                                <td class="small">{{ fn.total_lines }} ({{ fn.start_line }}~{{ fn.end_line }})</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <!-- delegation chain trace popup -->
+                        <div v-if="chainByRow[r.id]" class="chain" style="margin-top:10px">
+                          <div class="small" style="margin-bottom:4px;color:#a78bfa">DELEGATION CHAIN TRACE</div>
+                          <div v-for="(step, idx) in chainByRow[r.id]" :key="idx" class="step">
+                            <span class="small">[{{ step.depth }}]</span>
+                            <span v-if="step.indexed">
+                              <span class="layer-chip"
+                                    :class="'layer-' + layerCssClass(deriveLayer(step.layer, step.class_fqcn))">
+                                {{ deriveLayer(step.layer, step.class_fqcn) }}
+                              </span>
+                              <b>{{ step.name }}</b>
+                              <span class="small">in {{ (step.class_fqcn||'').split('.').slice(-1)[0] }}</span>
+                              <span class="small">  본문={{ shapeLabel(step.body_shape) }} 명령={{ semSloc(step) }} fan_in={{ step.fan_in_count }}</span>
+                              <span v-if="step.delegation_target" class="arrow"> ↓ delegates to</span>
+                              <span v-else class="leaf"> ← LEAF</span>
+                            </span>
+                            <span v-else class="miss">{{ step.fqsig }} (not indexed / external)</span>
+                          </div>
+                          <div style="margin-top:6px;text-align:right">
+                            <a @click="closeChain(r.id)" class="small">닫기</a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <details>
+                        <summary>raw json</summary>
+                        <pre>{{ JSON.stringify(astByRow[r.id].ast, null, 2) }}</pre>
+                      </details>
+                    </div>
+                    <div v-else class="empty" style="padding:14px">
+                      <span v-if="issuesByRow[r.id]">매칭된 소스 파일이 없어 코드 분석은 불가합니다. 위 수정 권고를 참고하세요.</span>
+                      <span v-else>분석 결과 없음</span>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script>
+const { createApp, ref, computed, onMounted, watch } = Vue;
+const API = '';
+
+async function api(method, url, body, isForm){
+  const opts = { method, headers: {} };
+  if (body && !isForm) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (body && isForm) {
+    opts.body = body;
+  }
+  const res = await fetch(API + url, opts);
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = j.detail || JSON.stringify(j); } catch(_) {}
+    throw new Error(`HTTP ${res.status}: ${msg}`);
+  }
+  return res.json();
+}
+
+createApp({
+  setup(){
+    const view = ref('list');               // 'list' | 'detail'
+    const projects = ref([]);
+    const currentProjectId = ref(null);
+    const programs = ref([]);
+    const bundles = ref([]);
+    const selectedProgramId = ref(null);
+    const astByRow = ref({});
+    const semByRow = ref({});        // rowId -> {found, class, methods, implementations} | null
+
+    // AI 분석 — UI placeholder. 실행 로직은 아직 정해지지 않음.
+    function onAiReviewClick(){ /* TODO: 추후 구현 */ }
+
+    const SHAPE_LABEL_KR = {
+      'empty':            '빈 본문',
+      'multi_statement':  '여러 줄',
+      'delegation':       '위임만',
+      'accessor':         '값 반환',
+      'stub_throw':       '미구현 예외',
+      'single_throw':     '예외 한 줄',
+      'stub_literal':     '임시 반환값',
+      'single_return':    '값 반환 한 줄',
+      'single_statement': '명령 한 줄',
+    };
+    function shapeLabel(shape){
+      return SHAPE_LABEL_KR[shape] || shape || '-';
+    }
+    function semSloc(m){
+      // Option 1: max(1, statement_count) so 1-line delegations show 1 instead of 0.
+      const sc = m.statement_count;
+      if (typeof sc !== 'number') return m.sloc ?? 0;
+      return Math.max(1, sc);
+    }
+    const chainByRow = ref({});      // rowId -> [{depth,...}]
+    const semanticSummary = ref(null);
+    const semanticRunning = ref(false);
+    const semanticMsg = ref('');
+    const semanticMsgKind = ref('');
+
+    // spec freshness issues
+    const issueSummary = ref(null);
+    const issues = ref([]);
+
+    // summary aggregates
+    const projectSummary = ref(null);     // 프로젝트 전체 요약
+    const programSummary = ref(null);     // 선택된 프로그램 요약
+
+    // ---- user-friendly labels ----
+    const STATUS_LABEL = { O: '일치', PARTIAL: '부분 일치', X: '불일치' };
+    const STRATEGY_LABEL = {
+      'fqcn'           : '패키지+이름 완전 일치',
+      'simple_name'    : '이름은 같지만 패키지가 다름',
+      'fqcn_miss'      : '코드에서 못 찾음',
+      'filename.vue'   : '파일명 일치 (.vue)',
+      'filename.tsx'   : '파일명 일치 (.tsx)',
+      'filename.jsx'   : '파일명 일치 (.jsx)',
+      'filename_ci'    : '파일명 일치 (대소문자 무시)',
+      'filename_miss'  : '코드에서 못 찾음',
+      'any_name'       : '파일명 일치 (종류 미지정)',
+      'no_module_name' : '산출문서에 모듈명 없음',
+      'unknown_kind'   : '산출문서의 종류 미지정',
+    };
+    const ISSUE_KIND_LABEL = {
+      'PACKAGE_DRIFT'  : '패키지 정정 필요',
+      'AMBIGUOUS'      : '후보가 여러 개',
+      'MODULE_MISSING' : '모듈을 찾을 수 없음',
+    };
+    function statusLabel(s){ return STATUS_LABEL[s] || '?'; }
+    function strategyLabel(s){ return s ? (STRATEGY_LABEL[s] || s) : '-'; }
+    function issueKindLabel(k){ return ISSUE_KIND_LABEL[k] || k; }
+
+    // filter & pagination
+    const filter = ref('all');
+    const search = ref('');
+    const currentPage = ref(1);
+    const pageSize = 10;
+
+    // upload state
+    const newProjectName = ref('');
+    const newSpecFile = ref(null);
+    const newMappingFile = ref(null);
+    const createMsg = ref('');
+    const createMsgKind = ref('');
+
+    const sourceFiles = ref([]);
+    const uploading = ref(false);
+    const uploadMsg = ref('');
+    const uploadMsgKind = ref('');
+
+    const currentProject = computed(() =>
+      projects.value.find(p => p.id === currentProjectId.value)
+    );
+
+    const selectedProgram = computed(() =>
+      programs.value.find(p => p.program_id === selectedProgramId.value)
+    );
+
+    const filteredPrograms = computed(() => {
+      let arr = programs.value;
+      if (filter.value !== 'all'){
+        const k = filter.value;
+        // "한 개라도 있으면 표시" — 한 프로그램이 일치/부분/불일치 섞여 있어도
+        // 각 필터에 모두 등장 (사용자 직관 우선)
+        arr = arr.filter(p => {
+          if (k==='O') return p.found > 0;
+          if (k==='PARTIAL') return p.partial > 0;
+          if (k==='X') return p.missing > 0;
+          return true;
+        });
+      }
+      if (search.value){
+        const q = search.value.toLowerCase();
+        arr = arr.filter(p =>
+          (p.program_name||'').toLowerCase().includes(q) ||
+          (p.program_id||'').toLowerCase().includes(q) ||
+          (p.menu_url||'').toLowerCase().includes(q)
+        );
+      }
+      return arr;
+    });
+
+    const pageCount = computed(() =>
+      Math.max(1, Math.ceil(filteredPrograms.value.length / pageSize))
+    );
+
+    const pagedPrograms = computed(() => {
+      const start = (currentPage.value - 1) * pageSize;
+      return filteredPrograms.value.slice(start, start + pageSize);
+    });
+
+    const pageNumbers = computed(() => {
+      const total = pageCount.value;
+      const cur = currentPage.value;
+      if (total <= 7) return Array.from({length: total}, (_, i) => i + 1);
+      const out = [];
+      const add = (n) => out.push(n);
+      add(1);
+      if (cur > 3) add('…');
+      for (let n = Math.max(2, cur-1); n <= Math.min(total-1, cur+1); n++) add(n);
+      if (cur < total - 2) add('…');
+      add(total);
+      return out;
+    });
+
+    // Reset to page 1 when filter/search/programs change
+    watch([filter, search], () => { currentPage.value = 1; });
+    watch(programs, () => { currentPage.value = 1; });
+    // Clamp currentPage when pageCount shrinks
+    watch(pageCount, (n) => { if (currentPage.value > n) currentPage.value = n; });
+
+    function setFilter(f){ filter.value = f; }
+
+    function countByStatus(k){
+      // 각 상태가 한 개라도 있는 프로그램은 모두 카운트
+      // (한 프로그램이 여러 카테고리에 동시에 카운트될 수 있음 — 의도된 동작)
+      if (k==='O') return programs.value.filter(p => p.found > 0).length;
+      if (k==='PARTIAL') return programs.value.filter(p => p.partial > 0).length;
+      if (k==='X') return programs.value.filter(p => p.missing > 0).length;
+      return programs.value.length;
+    }
+
+    // ---------- data ----------
+
+    async function refreshProjects(){
+      projects.value = await api('GET', '/api/projects');
+    }
+
+    async function loadProject(){
+      if (!currentProjectId.value){ programs.value = []; bundles.value = []; return; }
+      programs.value = await api('GET', `/api/projects/${currentProjectId.value}/programs`);
+      bundles.value = await api('GET', `/api/projects/${currentProjectId.value}/sources`);
+      selectedProgramId.value = null;
+      astByRow.value = {};
+      semByRow.value = {};
+      chainByRow.value = {};
+      currentPage.value = 1;
+      await loadSemanticSummary();
+      await loadIssueSummary();
+      await loadProjectSummary();
+    }
+
+    async function loadIssueSummary(){
+      issueSummary.value = null;
+      issues.value = [];
+      try {
+        const r = await api('GET', `/api/projects/${currentProjectId.value}/spec-issues`);
+        issues.value = r.issues || [];
+        issueSummary.value = { total: r.total, by_kind: r.by_kind };
+      } catch(_) {}
+    }
+
+    function sumPct(obj, key){
+      if (!obj) return 0;
+      const total = Object.values(obj).reduce((a,b) => a + (b||0), 0);
+      if (!total) return 0;
+      return Math.round(((obj[key]||0) / total) * 100);
+    }
+    function sumBarTip(obj, keys){
+      return (keys||[]).map(k => `${k}: ${obj[k]||0} (${sumPct(obj,k)}%)`).join(' · ');
+    }
+    function anyStub(stubs){
+      return !!stubs && Object.values(stubs).some(v => v > 0);
+    }
+    function sortedLayers(layerMap){
+      if (!layerMap) return {};
+      const entries = Object.entries(layerMap).sort((a,b) => b[1] - a[1]);
+      return Object.fromEntries(entries);
+    }
+
+    async function loadProjectSummary(){
+      projectSummary.value = null;
+      try {
+        projectSummary.value = await api('GET', `/api/projects/${currentProjectId.value}/summary`);
+      } catch(_) {}
+    }
+
+    async function loadProgramSummary(programId){
+      programSummary.value = null;
+      if (!programId) return;
+      try {
+        programSummary.value = await api('GET',
+          `/api/projects/${currentProjectId.value}/summary?program_id=${encodeURIComponent(programId)}`);
+      } catch(_) {}
+    }
+
+    // Re-load program summary whenever selection changes
+    watch(selectedProgramId, (pid) => {
+      programSummary.value = null;
+      if (pid) loadProgramSummary(pid);
+    });
+
+    // Map row_id -> first matching issue (each row has at most one issue in practice)
+    const issuesByRow = computed(() => {
+      const m = {};
+      for (const i of (issues.value || [])) {
+        if (i.row_id != null && !m[i.row_id]) m[i.row_id] = i;
+      }
+      return m;
+    });
+
+    function copy(text){
+      if (!text) return;
+      navigator.clipboard.writeText(text).catch(()=>{});
+    }
+
+    /** 사용자가 후보 중 하나를 [선택] — 매핑을 그 파일로 영구 고정.
+     *  status=일치(O), match_strategy=manual, manual_override=1 로 저장됨.
+     *  이후 re-match 해도 보존됨. */
+    async function selectCandidate(rowId, fqcn){
+      try {
+        await api('POST',
+          `/api/projects/${currentProjectId.value}/mapping/${rowId}/select`,
+          { fqcn });
+        // 매칭 상태가 바뀌었으니 프로그램·이슈 다시 로드
+        await loadProject();
+        await loadIssueSummary();
+        // 화면 한 번 더 흔들어 깨우기 — 펼친 ast 닫고 사용자가 새로 열게
+        const next = { ...astByRow.value }; delete next[rowId]; astByRow.value = next;
+        const ns = { ...semByRow.value }; delete ns[rowId]; semByRow.value = ns;
+      } catch(e){
+        alert('선택 실패: ' + e.message);
+      }
+    }
+
+    function dedupeBy(arr, key){
+      const seen = new Set();
+      const out = [];
+      for (const x of (arr||[])){
+        if (!seen.has(x[key])){ seen.add(x[key]); out.push(x); }
+      }
+      return out;
+    }
+
+    async function loadSemanticSummary(){
+      semanticSummary.value = null;
+      try {
+        semanticSummary.value = await api('GET', `/api/projects/${currentProjectId.value}/semantic/summary`);
+      } catch(_) { /* 404 -> not run yet, leave null */ }
+    }
+
+    async function runSemantic(){
+      if (!bundles.value.length) {
+        semanticMsg.value = '✗ 소스 zip 을 먼저 업로드해주세요';
+        semanticMsgKind.value = 'err';
+        return;
+      }
+      semanticRunning.value = true;
+      semanticMsg.value = '실행 중… (수십 초 ~ 수 분)';
+      semanticMsgKind.value = '';
+      try {
+        const r = await api('POST', `/api/projects/${currentProjectId.value}/semantic/run`);
+        semanticMsg.value = `✓ ${r.classes} classes / ${r.methods} methods / ${r.interface_impls} impls`;
+        semanticMsgKind.value = 'ok';
+        await loadSemanticSummary();
+        // refresh open AST panels
+        for (const rowId of Object.keys(astByRow.value)) {
+          await loadSemanticForRow(parseInt(rowId, 10));
+        }
+      } catch(e){
+        semanticMsg.value = '✗ ' + e.message;
+        semanticMsgKind.value = 'err';
+      } finally {
+        semanticRunning.value = false;
+      }
+    }
+
+    async function loadSemanticForRow(rowId){
+      // Find the row's source_file fqcn
+      const prog = selectedProgram.value;
+      if (!prog) return;
+      const row = prog.rows.find(r => r.id === rowId);
+      if (!row || !row.rel_path) return;
+      // Derive fqcn from rel_path for .java files
+      if (!row.rel_path.endsWith('.java')) {
+        semByRow.value = { ...semByRow.value, [rowId]: null };
+        return;
+      }
+      let fqcn = null;
+      const m = row.rel_path.match(/src\/main\/java\/(.+)\.java$/);
+      if (m) fqcn = m[1].replace(/\//g, '.');
+      if (!fqcn) {
+        semByRow.value = { ...semByRow.value, [rowId]: null };
+        return;
+      }
+      try {
+        const res = await api('GET', `/api/projects/${currentProjectId.value}/semantic/by-fqcn?fqcn=${encodeURIComponent(fqcn)}`);
+        if (res.found) {
+          // Same FQCN can exist in multiple uploaded zips (e.g. portal_backend
+          // and portal_backend_admin both have dashboard.controller.DashboardRestController).
+          // Filter methods to only those whose class file path matches the current row.
+          const wantSuffix = row.rel_path.replace(/^[^/]+\//, '');
+          const allMethods = res.methods || [];
+          const normalized = (p) => (p || '').replace(/\\/g, '/');
+          const fileMatches = (mfile) => {
+            const n = normalized(mfile);
+            return n.endsWith(row.rel_path) || n.endsWith(wantSuffix);
+          };
+          const filtered = allMethods.filter(m => fileMatches(m.class_file));
+          res.methods = filtered.length ? filtered : allMethods;
+          res.method_count_total = allMethods.length;
+          res.method_count_in_file = res.methods.length;
+          res.has_duplicate_fqcn = allMethods.length !== filtered.length && filtered.length > 0;
+        }
+        semByRow.value = { ...semByRow.value, [rowId]: res.found ? res : null };
+        if (res.found && res.class && res.class.fqcn) {
+          // Only hydrate the cache — do NOT auto-fire LLM. User clicks the
+          // 🤖 AI 분석 button per candidate.
+          await hydrateLlmForClass(rowId, res.class.fqcn);
+        }
+      } catch(_) {
+        semByRow.value = { ...semByRow.value, [rowId]: null };
+      }
+    }
+
+    async function loadChain(rowId, fqsig){
+      try {
+        const r = await api('GET', `/api/projects/${currentProjectId.value}/semantic/chain?fqsig=${encodeURIComponent(fqsig)}`);
+        chainByRow.value = { ...chainByRow.value, [rowId]: r.chain };
+      } catch(e){
+        alert('chain trace 실패: ' + e.message);
+      }
+    }
+
+    function closeChain(rowId){
+      const next = { ...chainByRow.value };
+      delete next[rowId];
+      chainByRow.value = next;
+    }
+
+    function shortSig(s){
+      if (!s) return '';
+      // FQN signature looks like: pkg.A.B.method(java.lang.String, com.x.Foo)
+      // We want: B.method(String, Foo) — strip package prefixes on BOTH the
+      // declaring class and each parameter. Earlier naive split('.') broke
+      // because dots inside parameter types got mangled.
+      const parenIdx = s.indexOf('(');
+      if (parenIdx === -1) {
+        const parts = s.split('.');
+        const tail = parts.length >= 2 ? parts.slice(-2).join('.') : s;
+        return tail.length > 60 ? tail.slice(0, 57) + '…' : tail;
+      }
+      const head = s.slice(0, parenIdx);
+      const body = s.slice(parenIdx + 1, s.lastIndexOf(')'));   // params only
+      const headParts = head.split('.');
+      const classMethod = headParts.length >= 2
+        ? headParts.slice(-2).join('.')
+        : head;
+      const simpleParams = body
+        ? body.split(',').map(p => {
+            const t = p.trim();
+            const dot = t.lastIndexOf('.');
+            return dot >= 0 ? t.slice(dot + 1) : t;
+          }).join(', ')
+        : '';
+      const out = classMethod + '(' + simpleParams + ')';
+      return out.length > 60 ? out.slice(0, 57) + '…' : out;
+    }
+
+    // ---------- unified-table helpers (tree-sitter ⨯ semantic merge) ----------
+
+    /** Find matching semantic method for a tree-sitter function by name + start_line.
+     *  Returns the semantic method object, or null/undefined if no match. */
+    function getSem(rowId, fn){
+      const sem = semByRow.value[rowId];
+      if (!sem || !sem.found) return null;
+      const methods = sem.methods || [];
+      // Prefer exact name+line match; fall back to name-only (handles 1-line drift)
+      let hit = methods.find(m => m.name === fn.name && m.start_line === fn.start_line);
+      if (!hit) hit = methods.find(m => m.name === fn.name && Math.abs(m.start_line - fn.start_line) <= 2);
+      return hit || null;
+    }
+
+    /** A method is an LLM candidate whenever static analysis can't fully explain it.
+     *  Four distinct gray zones:
+     *   (1) status='unknown' — 정적이 분류 보류 (STRAIGHT_LINE/UNKNOWN)
+     *   (2) status='suspect' — 정적이 의심 (STUB_xxx / HANDLER_BLOATED) — LLM 으로 재검증
+     *   (3) status='ok' + 위임-shape + 호출 대상 미해석 — 약한 증거를 LLM 으로 강화
+     *   (4) status='ok' + 본문에 호출 있음 + 0% 해석 — 호출 추적 불가 → LLM 으로 본문 분석
+     *  Excluded: 진짜로 본문이 없는 경우 (interface/abstract). */
+    function isLLMCandidate(fn, sem){
+      // No body at all → nothing to read
+      if (fn.body_class === 'no_body' || fn.body_class === 'abstract') return false;
+
+      // (1) 분류 보류
+      if (fn.status === 'unknown') return true;
+
+      // (2) 정적 의심 → AI 2차 의견
+      if (fn.status === 'suspect') return true;
+
+      // Need semantic info for the remaining branches
+      if (!sem) return false;
+
+      const calls = sem.calls || [];
+      const resolved = calls.filter(c => c.resolved).length;
+
+      // (3) 위임-shape + 호출 대상 미해석
+      const delegationShapes = new Set(['delegation', 'single_return', 'single_statement', 'accessor']);
+      const delegationVerdicts = new Set([
+        'HANDLER_DELEGATION', 'SERVICE_DELEGATION', 'DELEGATION', 'ACCESSOR'
+      ]);
+      const isDelegationLike =
+        delegationShapes.has(fn.body_class) || delegationVerdicts.has(fn.verdict);
+      if (isDelegationLike) {
+        if (sem.delegation_target) return false;
+        if (calls.length > 0 && resolved === 0) return true;
+        if (calls.length === 0 && (fn.fan_out || 0) > 0) return true;
+      }
+
+      // (4) 의미 있는 본문(sloc>=3) 이고 호출이 있는데 전부 미해석
+      //     → tree-sitter 는 "처리/로직" 으로 봤지만 SymbolSolver 가 무엇을
+      //       부르는지 못 알아낸 상태. 사용자 입장에서 "이 메서드가 진짜
+      //       뭘 하는지" 추적 불가 → LLM 본문 해석 가치 있음.
+      if (calls.length > 0 && resolved === 0 && (fn.sloc || 0) >= 3) return true;
+
+      return false;
+    }
+
+    /** Up to 3 resolved targets (short signatures) used as evidence summary. */
+    function evidenceCalls(sem){
+      const calls = (sem && sem.calls) || [];
+      return calls.filter(c => c.resolved).slice(0, 3);
+    }
+
+    /** When a method has no outgoing calls (so no "위임 대상" can be shown),
+     *  tree-sitter still classified the body shape. Surface that shape as the
+     *  basis so the 근거 column is never just "—" for cases where static
+     *  analysis is actually confident. */
+    const STATIC_BASIS = {
+      'accessor'         : '단일 필드/변수 반환 — `return this.xxx` 형태',
+      'empty'            : '본문 비어있음 (`{}` 빈 블록)',
+      'no_body'          : '본문 없음 (abstract / interface)',
+      'stub_literal'     : 'literal 만 반환 (`null` / `false` / `0` 등)',
+      'stub_throw'       : '미구현 예외 throw (`UnsupportedOperationException` 등)',
+      'stub_debug'       : '디버그 출력만 (`log.*` / `println`)',
+      'single_throw'     : '예외 throw 1줄',
+      'single_return'    : 'return 1줄 (literal/접근자/위임 아닌 표현식)',
+      'single_statement' : '단일 문장 (위임/접근자 아닌)',
+      'empty_return'     : '`return;` (값 반환 없음)',
+    };
+    function staticBasis(fn){
+      return STATIC_BASIS[fn && fn.body_class] || null;
+    }
+
+    // ---------- Lombok detection ----------
+
+    const LOMBOK_GENERATORS = new Set([
+      'Data', 'Getter', 'Setter', 'Builder', 'SuperBuilder', 'Value',
+      'AllArgsConstructor', 'NoArgsConstructor', 'RequiredArgsConstructor',
+      'ToString', 'EqualsAndHashCode', 'Accessors',
+    ]);
+
+    function isLombokClass(cls){
+      const anns = cls.annotations || [];
+      return anns.some(a => LOMBOK_GENERATORS.has(a));
+    }
+
+    // ---------- layer label derivation (raw suffix preservation) ----------
+    // Idea: instead of forcing every class into a fixed bucket (which produces
+    // UNKNOWN for anything unexpected), preserve the actual suffix from the
+    // class name. `StringUtility` → "Utility", `XxxManager` → "Manager", etc.
+    // Display label is the raw suffix; CSS class groups similar things so the
+    // color stays consistent (Util/Utility/Helper all use the UTIL chip color).
+
+    // ordered by length DESC so longer suffixes win (e.g. "RestController" before "Controller")
+    const SUFFIX_TO_CSS_GROUP = [
+      ['RestController', 'CONTROLLER'],
+      ['Controller',     'CONTROLLER'],
+      ['ServiceImpl',    'SERVICE'],
+      ['Service',        'SERVICE'],
+      ['RepositoryImpl', 'REPOSITORY'],
+      ['RepositoryCustom','REPOSITORY'],
+      ['Repository',     'REPOSITORY'],
+      ['DAO',            'REPOSITORY'],
+      ['Dao',            'REPOSITORY'],
+      ['Mapper',         'MAPPER'],
+      ['Configuration',  'CONFIG'],
+      ['Config',         'CONFIG'],
+      ['Entity',         'ENTITY'],
+      ['Utilities',      'UTIL'],
+      ['Utility',        'UTIL'],
+      ['Utils',          'UTIL'],
+      ['Util',           'UTIL'],
+      ['Helpers',        'UTIL'],
+      ['Helper',         'UTIL'],
+      ['Manager',        'COMPONENT'],
+      ['Handler',        'COMPONENT'],
+      ['Provider',       'COMPONENT'],
+      ['Adapter',        'COMPONENT'],
+      ['Listener',       'COMPONENT'],
+      ['Validator',      'COMPONENT'],
+      ['Filter',         'COMPONENT'],
+      ['Interceptor',    'COMPONENT'],
+      ['Aspect',         'COMPONENT'],
+      ['Resolver',       'COMPONENT'],
+      ['Converter',      'COMPONENT'],
+      ['Builder',        'COMPONENT'],
+      ['Factory',        'COMPONENT'],
+      ['Registry',       'COMPONENT'],
+      ['Scheduler',      'COMPONENT'],
+      ['Worker',         'COMPONENT'],
+      ['Job',            'COMPONENT'],
+      ['Task',           'COMPONENT'],
+      ['Request',        'DTO'],
+      ['Response',       'DTO'],
+      ['Form',           'DTO'],
+      ['Command',        'DTO'],
+      ['Query',          'DTO'],
+      ['DTO',            'DTO'],
+      ['Dto',            'DTO'],
+      ['VO',             'DTO'],
+      ['Vo',             'DTO'],
+    ];
+
+    /** Extract the class FQCN from a fully qualified method signature.
+     *  "com.example.A.foo(bar)" → "com.example.A". */
+    function fqcnFromSig(sig){
+      if (!sig) return '';
+      const parenIdx = sig.indexOf('(');
+      const head = parenIdx >= 0 ? sig.slice(0, parenIdx) : sig;
+      const lastDot = head.lastIndexOf('.');
+      return lastDot > 0 ? head.slice(0, lastDot) : head;
+    }
+
+    function detectSuffix(name){
+      if (!name) return null;
+      for (const [suf, _] of SUFFIX_TO_CSS_GROUP) {
+        if (name.endsWith(suf)) return suf;
+      }
+      return null;
+    }
+
+    /** Display label for a layer chip.
+     *  - If backend gave a categorized layer (not UNKNOWN/EXTERNAL), keep it.
+     *  - Else extract the actual suffix from the class FQCN — preserves
+     *    naming variation (Util / Utility / Helper / Manager …).
+     *  - Last resort: class simple name. Never returns "UNKNOWN". */
+    function deriveLayer(rawLayer, fqcn){
+      if (rawLayer && rawLayer !== 'UNKNOWN' && rawLayer !== 'EXTERNAL') {
+        return rawLayer;
+      }
+      const simple = (fqcn || '').split('.').pop();
+      return detectSuffix(simple) || simple || rawLayer || 'EXTERNAL';
+    }
+
+    /** CSS class chip for the derived layer label. Groups variations together. */
+    function layerCssClass(displayLabel){
+      if (!displayLabel) return 'EXTERNAL';
+      const upper = displayLabel.toUpperCase();
+      // exact existing layer name?
+      const known = ['CONTROLLER','SERVICE','REPOSITORY','MAPPER','ENTITY',
+                     'DTO','CONFIG','COMPONENT','UTIL','UNKNOWN','EXTERNAL'];
+      if (known.includes(upper)) return upper;
+      // map suffix → CSS group
+      for (const [suf, css] of SUFFIX_TO_CSS_GROUP) {
+        if (displayLabel === suf) return css;
+      }
+      return 'EXTERNAL';
+    }
+
+    // tree-sitter kind 토큰 → 짧은 라벨 + 한국어 의미 (툴팁)
+    const KIND_DISPLAY = {
+      'class_declaration'         : { label: 'class',     desc: '클래스 — 일반 클래스 선언' },
+      'interface_declaration'     : { label: 'interface', desc: '인터페이스 — 메서드 시그니처만 선언' },
+      'enum_declaration'          : { label: 'enum',      desc: '열거형 — 정해진 값 집합' },
+      'record_declaration'        : { label: 'record',    desc: '레코드 — 불변 데이터 클래스 (Java 14+)' },
+      'annotation_type_declaration': { label: '@interface', desc: '어노테이션 타입 정의' },
+      'class_definition'          : { label: 'class',     desc: '클래스 (Python)' },
+    };
+    function kindLabel(k){ return (KIND_DISPLAY[k] || {}).label || k; }
+    function kindDesc(k){ return (KIND_DISPLAY[k] || {}).desc || k; }
+
+    function lombokHints(cls){
+      const anns = new Set(cls.annotations || []);
+      const out = [];
+      if (anns.has('Getter') || anns.has('Data') || anns.has('Value')) out.push('getter');
+      if (anns.has('Setter') || anns.has('Data')) out.push('setter');
+      if (anns.has('AllArgsConstructor') || anns.has('Value')) out.push('AllArgsConstructor');
+      if (anns.has('NoArgsConstructor')) out.push('NoArgsConstructor');
+      if (anns.has('RequiredArgsConstructor')) out.push('RequiredArgsConstructor');
+      if (anns.has('Builder') || anns.has('SuperBuilder')) out.push('builder()');
+      if (anns.has('ToString') || anns.has('Data')) out.push('toString()');
+      if (anns.has('EqualsAndHashCode') || anns.has('Data') || anns.has('Value')) out.push('equals/hashCode()');
+      return out;
+    }
+
+    function fileHasLombokOnly(ast){
+      if (!ast || !(ast.classes || []).length) return false;
+      if ((ast.functions || []).length > 0) return false;
+      return ast.classes.some(isLombokClass);
+    }
+
+    /** Why is this a candidate? Used to pick the right inline message. */
+    function llmCandidateReason(fn, sem){
+      const calls = (sem && sem.calls) || [];
+      const resolved = calls.filter(c => c.resolved).length;
+      const allUnresolved = calls.length > 0 && resolved === 0;
+
+      // delegation-shape (1줄 위임) + 미해석 → 위임 추적 끊김
+      const delegationShapes = new Set(['delegation', 'single_return', 'single_statement', 'accessor']);
+      const isDelegationLike = delegationShapes.has(fn.body_class);
+      if (sem && !sem.delegation_target && allUnresolved && isDelegationLike) {
+        return 'UNRESOLVED_DELEGATION';
+      }
+      if (fn.status === 'suspect') return 'STATIC_SUSPECT';
+      if (fn.status === 'unknown') return 'STATIC_PUNTED';
+      // status=ok, body 있음, 호출은 있는데 전부 미해석 → 본문 해석 불가
+      if (allUnresolved) return 'OPAQUE_CALLS';
+      return 'OTHER';
+    }
+
+    // ---------- LLM analysis state + actions ----------
+
+    // rowId -> { fqsig -> result } (cached LLM results, hydrated when row opens)
+    const llmByRow = ref({});
+    // `${rowId}|${fqsig}` -> true while an analyze call is in-flight
+    const llmLoading = ref({});
+    // session-only: `${rowId}|${fqsig}` -> true → hide the result panel and show
+    // the AI 분석 button again. Refresh clears this (cache reappears).
+    const llmDismissed = ref({});
+
+    // Map LLM verdict → effective row status grouping (ok / suspect / unknown)
+    const LLM_VERDICT_TO_STATUS = {
+      REAL_DELEGATION: 'ok',
+      REAL_LOGIC     : 'ok',
+      STUB           : 'suspect',
+      NAME_MISMATCH  : 'suspect',
+      UNCLEAR        : 'unknown',
+    };
+
+    const LLM_VERDICT_LABEL = {
+      REAL_DELEGATION: '실제 위임',
+      REAL_LOGIC     : '실제 로직',
+      STUB           : '미구현 stub',
+      NAME_MISMATCH  : '이름·본문 불일치',
+      UNCLEAR        : '판단 모호',
+    };
+    function llmVerdictLabel(v){ return LLM_VERDICT_LABEL[v] || (v || '판정 없음'); }
+
+    function llmResultFor(rowId, fn){
+      const sem = getSem(rowId, fn);
+      if (!sem) return null;
+      const bucket = llmByRow.value[rowId];
+      if (!bucket) return null;
+      return bucket[sem.fqsig] || null;
+    }
+
+    function isLlmLoading(rowId, fqsig){
+      return !!llmLoading.value[`${rowId}|${fqsig}`];
+    }
+
+    /** True if ANY LLM call is currently in flight (anywhere on the page).
+     *  Used to gate every 🤖 AI 분석 button so we never fire a 2nd request
+     *  while one is busy — the box has 8GB VRAM and serialised execution
+     *  matches our operating rule (LLM 작업은 병렬 금지). */
+    const anyLlmInFlight = computed(() =>
+      Object.values(llmLoading.value).some(Boolean)
+    );
+
+    async function hydrateLlmForClass(rowId, fqcn){
+      try {
+        const r = await api('GET',
+          `/api/projects/${currentProjectId.value}/llm/by-class?fqcn=${encodeURIComponent(fqcn)}`);
+        llmByRow.value = { ...llmByRow.value, [rowId]: r };
+      } catch(_) {
+        // silent — class may have no LLM data yet
+      }
+    }
+
+    async function runLlmFor(rowId, fqsig, force){
+      const key = `${rowId}|${fqsig}`;
+      // re-running clears any prior dismiss for this method
+      if (llmDismissed.value[key]) {
+        const nd = { ...llmDismissed.value }; delete nd[key]; llmDismissed.value = nd;
+      }
+      llmLoading.value = { ...llmLoading.value, [key]: true };
+      try {
+        const result = await api('POST',
+          `/api/projects/${currentProjectId.value}/llm/analyze`,
+          { fqsig, force: !!force });
+        const bucket = { ...(llmByRow.value[rowId] || {}), [fqsig]: result };
+        llmByRow.value = { ...llmByRow.value, [rowId]: bucket };
+      } catch(e) {
+        const bucket = { ...(llmByRow.value[rowId] || {}),
+                         [fqsig]: { error: e.message, verdict: null } };
+        llmByRow.value = { ...llmByRow.value, [rowId]: bucket };
+      } finally {
+        const next = { ...llmLoading.value };
+        delete next[key];
+        llmLoading.value = next;
+      }
+    }
+
+    /** 적용 — promote LLM verdict into the row's effective status, persist to DB. */
+    async function applyLlm(rowId, fqsig){
+      try {
+        await api('POST', `/api/projects/${currentProjectId.value}/llm/apply`,
+          { fqsig, applied: true });
+        const existing = (llmByRow.value[rowId] || {})[fqsig] || {};
+        const bucket = { ...(llmByRow.value[rowId] || {}),
+                         [fqsig]: { ...existing, applied: true } };
+        llmByRow.value = { ...llmByRow.value, [rowId]: bucket };
+      } catch(e) {
+        alert('적용 실패: ' + e.message);
+      }
+    }
+
+    /** 적용 취소 — revoke the applied promotion, status falls back to static. */
+    async function unapplyLlm(rowId, fqsig){
+      try {
+        await api('POST', `/api/projects/${currentProjectId.value}/llm/apply`,
+          { fqsig, applied: false });
+        const existing = (llmByRow.value[rowId] || {})[fqsig] || {};
+        const bucket = { ...(llmByRow.value[rowId] || {}),
+                         [fqsig]: { ...existing, applied: false } };
+        llmByRow.value = { ...llmByRow.value, [rowId]: bucket };
+      } catch(e) {
+        alert('적용 취소 실패: ' + e.message);
+      }
+    }
+
+    /** 취소 — permanently delete the cached LLM result. After this the row
+     *  returns to the pre-analysis state (🤖 AI 분석 button visible) and
+     *  page refresh keeps it that way. User can re-analyze fresh later. */
+    async function dismissLlm(rowId, fqsig){
+      try {
+        await api('DELETE',
+          `/api/projects/${currentProjectId.value}/llm/by-fqsig?fqsig=${encodeURIComponent(fqsig)}`);
+      } catch(e) {
+        // Even on failure we clear locally so the UI doesn't get stuck —
+        // worst case is a stale row that re-appears on refresh.
+        console.warn('LLM cache delete failed (will clear UI anyway):', e.message);
+      }
+      // Drop from in-memory cache
+      const bucket = { ...(llmByRow.value[rowId] || {}) };
+      delete bucket[fqsig];
+      llmByRow.value = { ...llmByRow.value, [rowId]: bucket };
+      // Clear any leftover session-dismiss flag (legacy path)
+      const key = `${rowId}|${fqsig}`;
+      if (llmDismissed.value[key]) {
+        const nd = { ...llmDismissed.value }; delete nd[key]; llmDismissed.value = nd;
+      }
+    }
+
+    function isLlmDismissed(rowId, fqsig){
+      return !!llmDismissed.value[`${rowId}|${fqsig}`];
+    }
+
+    /** Has the user accepted this LLM verdict as authoritative for the row? */
+    function isLlmApplied(rowId, fn){
+      const r = llmResultFor(rowId, fn);
+      return !!(r && r.applied);
+    }
+
+    /** Effective row status: applied LLM verdict overrides static verdict. */
+    function effectiveStatus(rowId, fn){
+      const r = llmResultFor(rowId, fn);
+      if (r && r.applied && r.verdict) {
+        return LLM_VERDICT_TO_STATUS[r.verdict] || fn.status;
+      }
+      return fn.status;
+    }
+
+    /** When the user accepts an LLM verdict we render the row using the SAME
+     *  Korean vocabulary the static analyzer would have used (구현됨 / 위임 /
+     *  미구현 …). The 🤖+confidence badge in the status column already tells
+     *  the reader it came from AI — the label itself should match static so
+     *  the table reads consistently. */
+    function llmVerdictToStaticLabel(verdict, fn, sem){
+      const layer = (sem && sem.layer) || fn.class_name || '';
+      const sloc = (sem && sem.sloc) || fn.sloc || 0;
+      const cc = fn.cyclomatic_complexity || 0;
+      const hasEndpoint = fn.annotations && fn.annotations.some(a =>
+        ['GetMapping','PostMapping','PutMapping','DeleteMapping','PatchMapping','RequestMapping'].includes(a)
+      );
+      switch (verdict) {
+        case 'REAL_DELEGATION':
+          if (hasEndpoint || layer === 'CONTROLLER') return '컨트롤러 위임';
+          if (layer === 'SERVICE') return '서비스 위임';
+          return '메서드 위임';
+        case 'REAL_LOGIC':
+          // mirror static tiering thresholds (LOGIC_LIGHT/NORMAL/COMPLEX)
+          if (sloc >= 40 || cc >= 8) return '구현됨 (복잡)';
+          if (sloc >= 15 || cc >= 3) return '구현됨 (보통)';
+          return '구현됨 (단순)';
+        case 'STUB':
+          return '미구현 stub';
+        case 'NAME_MISMATCH':
+          return '이름·본문 불일치';
+        case 'UNCLEAR':
+          return '판단 모호';
+        default:
+          return verdict;
+      }
+    }
+
+    function effectiveLabel(rowId, fn){
+      const r = llmResultFor(rowId, fn);
+      if (r && r.applied && r.verdict) {
+        return llmVerdictToStaticLabel(r.verdict, fn, getSem(rowId, fn));
+      }
+      return fn.label_kr || '-';
+    }
+
+    function effectiveStatusKr(rowId, fn){
+      const s = effectiveStatus(rowId, fn);
+      return ({ ok: '정상', suspect: '의심', unknown: '알 수 없음' })[s] || '알 수 없음';
+    }
+
+    // ---------- routing ----------
+
+    function openProject(id){
+      currentProjectId.value = id;
+      view.value = 'detail';
+      window.location.hash = `#/projects/${id}`;
+      loadProject();
+    }
+
+    function goHome(){
+      view.value = 'list';
+      currentProjectId.value = null;
+      programs.value = [];
+      bundles.value = [];
+      selectedProgramId.value = null;
+      astByRow.value = {};
+      window.location.hash = '#/';
+      refreshProjects();
+    }
+
+    async function handleHash(){
+      const m = window.location.hash.match(/^#\/projects\/([^/]+)/);
+      await refreshProjects();
+      if (m){
+        currentProjectId.value = m[1];
+        // verify exists
+        if (!projects.value.find(p => p.id === m[1])){
+          goHome(); return;
+        }
+        view.value = 'detail';
+        await loadProject();
+      } else {
+        view.value = 'list';
+      }
+    }
+
+    window.addEventListener('hashchange', handleHash);
+
+    // ---------- actions ----------
+
+    async function createProject(){
+      try {
+        createMsg.value = '업로드 중…'; createMsgKind.value = '';
+        const fd = new FormData();
+        fd.append('name', newProjectName.value);
+        fd.append('spec_file', newSpecFile.value);
+        if (newMappingFile.value) fd.append('mapping_yaml', newMappingFile.value);
+        const res = await api('POST', '/api/projects', fd, true);
+        createMsg.value = `✓ ${res.program_count} programs, ${res.row_count} rows`;
+        createMsgKind.value = 'ok';
+        newProjectName.value = ''; newSpecFile.value = null; newMappingFile.value = null;
+        await refreshProjects();
+      } catch(e){
+        createMsg.value = '✗ ' + e.message; createMsgKind.value = 'err';
+      }
+    }
+
+    async function deleteProject(id){
+      if (!confirm('이 프로젝트를 삭제할까요?')) return;
+      await api('DELETE', `/api/projects/${id}`);
+      if (currentProjectId.value === id){ goHome(); return; }
+      await refreshProjects();
+    }
+
+    function onSourceFiles(e){
+      sourceFiles.value = Array.from(e.target.files);
+    }
+
+    async function uploadSources(){
+      uploading.value = true; uploadMsg.value = ''; uploadMsgKind.value = '';
+      try {
+        for (const f of sourceFiles.value){
+          uploadMsg.value = `${f.name} 업로드 중…`;
+          const fd = new FormData(); fd.append('file', f);
+          await api('POST', `/api/projects/${currentProjectId.value}/sources`, fd, true);
+        }
+        uploadMsg.value = '✓ 업로드 완료'; uploadMsgKind.value = 'ok';
+        sourceFiles.value = [];
+        await loadProject();
+        await refreshProjects();
+      } catch(e){
+        uploadMsg.value = '✗ ' + e.message; uploadMsgKind.value = 'err';
+      } finally {
+        uploading.value = false;
+      }
+    }
+
+    async function rematch(){
+      uploadMsg.value = 're-matching…'; uploadMsgKind.value = '';
+      const res = await api('POST', `/api/projects/${currentProjectId.value}/match`);
+      uploadMsg.value = `✓ O=${res.stats.O} P=${res.stats.PARTIAL} X=${res.stats.X}`;
+      uploadMsgKind.value = 'ok';
+      await loadProject();
+    }
+
+    function selectProgram(pid){
+      selectedProgramId.value = pid;
+      astByRow.value = {};
+    }
+
+    async function loadAst(rowId){
+      try {
+        const res = await api('GET', `/api/projects/${currentProjectId.value}/rows/${rowId}/ast`);
+        astByRow.value = { ...astByRow.value, [rowId]: res };
+      } catch(e){
+        alert('AST 분석 실패: ' + e.message);
+      }
+    }
+
+    function closeAst(rowId){
+      const next = { ...astByRow.value };
+      delete next[rowId];
+      astByRow.value = next;
+    }
+
+    async function toggleAst(rowId){
+      if (astByRow.value[rowId]) {
+        closeAst(rowId);
+        // also drop semantic + chain state
+        const ns = { ...semByRow.value }; delete ns[rowId]; semByRow.value = ns;
+        const nc = { ...chainByRow.value }; delete nc[rowId]; chainByRow.value = nc;
+      } else {
+        await loadAst(rowId);
+        if (semanticSummary.value) {
+          await loadSemanticForRow(rowId);
+        }
+      }
+    }
+
+    function statusMix(fns, rowId){
+      const groups = {
+        ok:      { status: 'ok',      label: '정상',     count: 0, detail: {} },
+        suspect: { status: 'suspect', label: '의심',     count: 0, detail: {} },
+        unknown: { status: 'unknown', label: '알 수 없음', count: 0, detail: {} },
+      };
+      for (const f of fns || []) {
+        // Honour applied LLM verdicts when computing the summary so the
+        // 메서드 상태 요약 immediately reflects accepted AI judgments.
+        const s = rowId != null ? effectiveStatus(rowId, f) : (f.status || 'unknown');
+        const lbl = rowId != null ? effectiveLabel(rowId, f) : (f.label_kr || '판정 불가');
+        groups[s].count++;
+        groups[s].detail[lbl] = (groups[s].detail[lbl] || 0) + 1;
+      }
+      const out = [];
+      for (const k of ['ok', 'suspect', 'unknown']) {
+        if (groups[k].count > 0) {
+          const det = Object.entries(groups[k].detail)
+            .map(([l, n]) => `${l} ${n}`).join(' · ');
+          out.push({ ...groups[k], detail: det });
+        }
+      }
+      return out;
+    }
+
+    onMounted(handleHash);
+
+    return {
+      view, projects, currentProjectId, currentProject,
+      programs, bundles, selectedProgramId, selectedProgram, astByRow,
+      semByRow, chainByRow, semanticSummary, semanticRunning, semanticMsg, semanticMsgKind,
+      filter, search, currentPage, pageSize,
+      pagedPrograms, filteredPrograms, pageCount, pageNumbers,
+      setFilter, countByStatus,
+      newProjectName, newSpecFile, newMappingFile, createMsg, createMsgKind,
+      sourceFiles, uploading, uploadMsg, uploadMsgKind,
+      openProject, goHome, createProject, deleteProject,
+      onSourceFiles, uploadSources, rematch,
+      selectProgram, loadAst, closeAst, toggleAst, statusMix,
+      runSemantic, loadChain, closeChain, shortSig,
+      getSem, isLLMCandidate, evidenceCalls, staticBasis,
+      llmByRow, llmLoading, llmDismissed, llmResultFor, isLlmLoading,
+      anyLlmInFlight,
+      runLlmFor, llmVerdictLabel, llmCandidateReason,
+      applyLlm, unapplyLlm, dismissLlm, isLlmDismissed,
+      isLlmApplied, effectiveStatus, effectiveStatusKr, effectiveLabel,
+      isLombokClass, lombokHints, fileHasLombokOnly,
+      kindLabel, kindDesc,
+      detectSuffix, deriveLayer, layerCssClass, fqcnFromSig,
+      projectSummary, programSummary,
+      sumPct, sumBarTip, anyStub, sortedLayers,
+      issueSummary, issuesByRow, copy, dedupeBy, selectCandidate,
+      statusLabel, strategyLabel, issueKindLabel,
+      shapeLabel, semSloc,
+      onAiReviewClick,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

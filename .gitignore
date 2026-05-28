@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 회사 데이터 (산출문서·소스코드·DB) — 절대 푸시 금지
+data/
+*.db
+*.sqlite
+*.xlsx
+
+# Java analyzer 빌드 산출물 (build.py 로 재생성)
+java_analyzer/build/
+java_analyzer/lib/
+*.jar
+*.class
+
+# IDE
+.vscode/
+.idea/
+*.iml
+.eclipse/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+*.log
+*.tmp
+tmp/
+temp/
+
+# uvicorn / FastAPI 캐시
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (혹시 frontend 추가 시)
+node_modules/

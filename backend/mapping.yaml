@@ -1,0 +1,104 @@
+spec:
+  sheet: 프로그램목록
+  sheet_aliases:
+    - "프로그램 목록"
+    - "프로그램목록"
+    - "프로그램_목록"
+    - "Program List"
+    - "ProgramList"
+
+  # Header row varies across project deliverables.
+  # The detector tries each candidate and picks whichever matches the most
+  # configured columns. KGD-DS uses row 2, MEBP/EOS use row 4.
+  header_row_candidates: [2, 3, 4]
+
+  # Each column can list multiple acceptable header labels.
+  # The first match wins. Columns absent in a particular sheet are simply
+  # left empty (only `module_name` is treated as required).
+  columns:
+    program_id:
+      - "프로그램ID"
+      - "프로그램ID(오퍼레이션)"
+      - "프로그램 ID"
+    program_name:
+      - "프로그램명"
+      - "프로그램 명"
+    kind:
+      - "구분"
+      - "개발방식"
+      - "개발 방식"
+    menu_url:
+      - "메뉴_URL"
+      - "메뉴URL"
+      - "URL"
+    package:
+      - "Package\n(Source)"
+      - "Package(Source)"
+      - "Package"
+      - "패키지"
+    module_name:
+      - "모듈명"
+      - "Module Name"
+    description:
+      - "모듈 설명"
+      - "모듈설명"
+      - "설명"
+    dev_type:
+      - "개발\n방식"
+      - "개발방식"
+      - "유형"
+      - "Type"
+    category_l1:
+      - "대분류"
+      - "시스템명"
+      - "System"
+    category_l2:
+      - "중분류"
+      - "구분(서비스명)"
+      - "서비스명"
+
+  forward_fill:
+    - program_id
+    - program_name
+    - menu_url
+    - category_l1
+    - category_l2
+
+  # `kind` raw values that should normalize to front/api.
+  # KGD-DS uses Front/API; MEBP/EOS uses HTML/JAVA + JSP/Vue mixed.
+  # Anything unrecognized → kind_norm=null (matcher falls back to filename mode).
+  kind_values:
+    front:
+      - Front
+      - FRONT
+      - front
+      - 프론트
+      - Vue
+      - VUE
+      - vue
+      - HTML
+      - html
+      - JSP
+      - jsp
+      - JavaScript
+      - JS
+    api:
+      - API
+      - api
+      - Back
+      - Backend
+      - backend
+      - 백엔드
+      - JAVA
+      - Java
+      - java
+      - Kotlin
+      - KT
+
+matching:
+  api:
+    strategy: fqcn          # package "." + module_name -> *.java path
+    extensions: [".java", ".kt"]
+  front:
+    strategy: filename      # module_name + ".vue"/".tsx"/".jsx"
+    extensions: [".vue", ".tsx", ".jsx", ".ts", ".js"]

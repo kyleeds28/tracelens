@@ -1,0 +1,7 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+openpyxl==3.1.5
+pyyaml==6.0.2
+tree-sitter>=0.25.0
+tree-sitter-language-pack>=1.8.0
