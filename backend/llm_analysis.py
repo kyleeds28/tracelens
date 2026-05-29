@@ -41,7 +41,8 @@ DEFAULT_MODEL = os.environ.get("LLM_MODEL", "qwen2.5-coder:7b")
 TIMEOUT_SEC = int(os.environ.get("LLM_TIMEOUT_SEC", "60"))
 
 
-VALID_VERDICTS = {"REAL_DELEGATION", "REAL_LOGIC", "STUB", "NAME_MISMATCH", "UNCLEAR"}
+VALID_VERDICTS = {"REAL_DELEGATION", "REAL_LOGIC", "STUB", "NAME_MISMATCH",
+                  "MOVED_TO_SIBLING", "UNCLEAR"}
 
 # Honest calibration: 7B local model often outputs 100%; cap at this ceiling
 # so the UI doesn't suggest absolute certainty.
@@ -88,20 +89,67 @@ SYSTEM_PROMPT = (
     "당신은 자바 백엔드 코드 분석 전문가입니다. "
     "정적 분석이 명확히 분류하지 못한 메서드의 본문을 보고 의도를 분류합니다. "
     "응답은 반드시 JSON 한 덩어리만 출력하세요. 한국어 설명을 사용하세요. "
-    "5가지 verdict 중 가장 적절한 하나를 선택하세요:\n"
-    "- REAL_DELEGATION: 다른 메서드 호출로 일을 위임 (호출 대상이 실로직 수행)\n"
-    "- REAL_LOGIC    : 본문에서 직접 검증·계산·비교·변환 등 의미 있는 로직 수행\n"
-    "- STUB          : 사실상 미구현 (return null/false, throw NotImpl, TODO만 등)\n"
-    "- NAME_MISMATCH : 메서드명·산출문서 약속과 본문이 불일치\n"
-    "- UNCLEAR       : 판단 모호 (확신 없을 때만)"
+    "6가지 verdict 중 가장 적절한 하나를 선택하세요:\n"
+    "- REAL_DELEGATION : 다른 메서드 호출로 일을 위임 (호출 대상이 실로직 수행)\n"
+    "- REAL_LOGIC     : 본문에서 직접 검증·계산·비교·변환 등 의미 있는 로직 수행\n"
+    "- STUB           : 사실상 미구현 (return null/false, throw NotImpl, TODO만 등) — "
+    "단, 대체 구현 정보를 참고할 것\n"
+    "- NAME_MISMATCH  : 메서드명·산출문서 약속과 본문이 불일치\n"
+    "- MOVED_TO_SIBLING: 본 메서드는 stub-like 인데 같은 인터페이스를 구현한 다른 클래스에 "
+    "활성 구현(real_impl, fan_in≥1)이 존재 — 책임이 대체 구현 클래스로 이전된 것으로 추정\n"
+    "- UNCLEAR        : 판단 모호 (확신 없을 때만)"
 )
 
 
-def build_prompt(ctx: dict) -> str:
+def _find_sibling_impls(project_id: str, class_fqcn: str, method_name: str) -> list[dict]:
+    """본 클래스가 구현한 인터페이스를 같이 구현하는 다른 클래스(sibling)에서
+    동일 이름의 메서드를 찾아 메타데이터 반환. dead-code / MOVED_TO_SIBLING
+    판단을 위한 정적 컨텍스트."""
+    if not (project_id and class_fqcn and method_name):
+        return []
+    with get_conn() as c:
+        rows = c.execute(
+            """
+            SELECT m.class_fqcn, m.name, m.body_shape, m.sloc,
+                   m.statement_count, m.fan_in_count, m.throws_not_impl,
+                   m.fqsig
+            FROM java_interface_impl ii_self
+            JOIN java_interface_impl ii_other
+              ON ii_self.interface_fqcn = ii_other.interface_fqcn
+             AND ii_self.project_id    = ii_other.project_id
+            JOIN java_method_semantic m
+              ON m.class_fqcn = ii_other.impl_fqcn
+             AND m.project_id = ii_other.project_id
+             AND m.name       = ?
+            WHERE ii_self.project_id = ?
+              AND ii_self.impl_fqcn  = ?
+              AND ii_other.impl_fqcn != ?
+            """,
+            (method_name, project_id, class_fqcn, class_fqcn),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _is_real_impl(row: dict) -> bool:
+    """sibling 의 메서드가 '진짜 구현' 인지 정적 지표만으로 판정."""
+    body = row.get("body_shape") or ""
+    if body in ("stub_literal", "stub_throw", "empty"):
+        return False
+    if row.get("throws_not_impl"):
+        return False
+    if (row.get("sloc") or 0) < 3:
+        return False
+    return True
+
+
+def build_prompt(ctx: dict, project_id: str | None = None) -> str:
     """Build the user prompt from a merged tree-sitter + SymbolSolver context.
 
     Both static analyses are surfaced as separate sections so the LLM can see
     where they agree, where they disagree, and what each one couldn't decide.
+
+    `project_id` enables sibling-impl lookup (MOVED_TO_SIBLING signal). If
+    omitted, the sibling section is silently skipped.
     """
     annotations = ", ".join(ctx.get("annotations") or []) or "(없음)"
 
@@ -160,6 +208,26 @@ def build_prompt(ctx: dict) -> str:
             f"- module_desc  : {ctx.get('module_description') or '-'}\n"
         )
 
+    # ---- 대체 구현 섹션 (같은 인터페이스를 구현한 다른 클래스의 동명 메서드) ----
+    sibling_block = ""
+    siblings = _find_sibling_impls(project_id, ctx.get("class_fqcn", ""), ctx.get("name", "")) \
+        if project_id else []
+    if siblings:
+        s_lines = ["\n## 대체 구현 (같은 인터페이스를 구현한 다른 클래스의 동명 메서드)"]
+        for s in siblings[:5]:
+            flag = "✓ real_impl" if _is_real_impl(s) else "✗ stub-like"
+            s_lines.append(
+                f"  - {s.get('class_fqcn','?')}.{s.get('name','?')}  [{flag}]\n"
+                f"      body={s.get('body_shape','-')}  sloc={s.get('sloc','-')}  "
+                f"stmts={s.get('statement_count','-')}  fan_in={s.get('fan_in_count','-')}  "
+                f"throws_not_impl={bool(s.get('throws_not_impl'))}"
+            )
+        s_lines.append(
+            "→ 참고: 본 메서드가 stub-like 인데 위 대체 구현 중 [✓ real_impl] + fan_in≥1 이 존재하면 "
+            "`MOVED_TO_SIBLING` 후보."
+        )
+        sibling_block = "\n".join(s_lines)
+
     return f"""## 분석 대상 메서드
 class       : {ctx['class_fqcn']}
 method      : {ctx['name']}
@@ -172,7 +240,8 @@ return_type : {ctx.get('return_type','-')}
 
 ## JavaParser + SymbolSolver 의미 분석 (호출 그래프)
 {sem_block}
-{spec_block}
+{spec_block}{sibling_block}
+
 ## 메서드 본문 코드
 ```java
 {ctx['source']}
@@ -181,20 +250,24 @@ return_type : {ctx.get('return_type','-')}
 ## 판단 지침
 - tree-sitter 가 분류 보류(`status=unknown`/`STRAIGHT_LINE`) 했거나 SymbolSolver 가
   호출 대상을 못 찾은 (`✗` 표시) 경우, **본문 코드를 직접 읽고** 의도를 판단하세요.
-- 5가지 verdict 중 하나만 선택:
-  - REAL_DELEGATION : 본문이 다른 메서드 호출 위주, 그 호출이 실로직을 수행할 것으로 추정
-  - REAL_LOGIC     : 본문이 직접 검증·계산·비교·변환 등 의미 있는 로직 수행
-                     (예: `return a != null && !(a instanceof X)` 처럼 인라인 검증)
-  - STUB           : 사실상 미구현 (return null, throw NotImpl, TODO 만 등)
-  - NAME_MISMATCH  : 메서드명·산출문서 약속과 본문이 불일치
-  - UNCLEAR        : 판단 모호 (확신 없을 때만, confidence 낮춰서)
-- reasoning 에는 본문에서 인용한 구체 근거를 1~2문장으로.
+- 6가지 verdict 중 하나만 선택:
+  - REAL_DELEGATION  : 본문이 다른 메서드 호출 위주, 그 호출이 실로직을 수행할 것으로 추정
+  - REAL_LOGIC      : 본문이 직접 검증·계산·비교·변환 등 의미 있는 로직 수행
+                       (예: `return a != null && !(a instanceof X)` 처럼 인라인 검증)
+  - STUB            : 사실상 미구현 (return null, throw NotImpl, TODO 만 등) — **단**
+                       대체 구현 정보를 보고 `MOVED_TO_SIBLING` 후보 아닌지 먼저 확인
+  - NAME_MISMATCH   : 메서드명·산출문서 약속과 본문이 불일치
+  - MOVED_TO_SIBLING: 본 메서드는 stub-like 한데 대체 구현 섹션에 [✓ real_impl]
+                       + fan_in≥1 인 다른 클래스 구현이 존재 → 책임이 그쪽으로 이전된 dead-code
+                       reasoning 에 어느 대체 구현 클래스가 대신 동작하는지 명시할 것
+  - UNCLEAR         : 판단 모호 (확신 없을 때만, confidence 낮춰서)
+- reasoning 에는 본문 또는 대체 구현 정보에서 인용한 구체 근거를 1~2문장으로.
 - 두 정적 분석이 서로 다른 신호를 줄 때 (예: tree-sitter 는 "보류" 인데 SymbolSolver 는
   fan_in=0) 그 점을 reasoning 에 짚어도 됩니다.
 
 ## 출력 형식 (이 JSON 만)
 {{
-  "verdict": "REAL_DELEGATION" | "REAL_LOGIC" | "STUB" | "NAME_MISMATCH" | "UNCLEAR",
+  "verdict": "REAL_DELEGATION" | "REAL_LOGIC" | "STUB" | "NAME_MISMATCH" | "MOVED_TO_SIBLING" | "UNCLEAR",
   "confidence": 0.0~1.0,
   "reasoning": "한글 1~2문장",
   "suggested_target_intent": "호출 대상 또는 본문 로직의 추정 역할 (한글 한 줄)",
@@ -220,7 +293,7 @@ def _call_ollama(model: str, system: str, user: str,
         "system": system,
         "format": "json",
         "stream": False,
-        "options": {"temperature": 0.1, "num_predict": num_predict},
+        "options": {"temperature": 0.1, "num_predict": num_predict, "num_ctx": 16384},
     }).encode("utf-8")
     req = urllib.request.Request(
         f"{OLLAMA_URL}/api/generate",
@@ -358,22 +431,22 @@ def set_applied(project_id: str, fqsig: str, applied: bool,
 def analyze_method(project_id: str, ctx: dict,
                    model: str = DEFAULT_MODEL,
                    force: bool = False) -> dict:
-    """Analyze a method via Ollama. Cached by (fqsig, body_hash, model).
+    """Analyze a method via Ollama.
 
     `ctx` is a dict with: class_fqcn, fqsig, name, layer, annotations,
     return_type, body_shape, sloc, static_verdict, calls, source,
     optionally program_name, module_description.
+
+    Note: 캐시 lookup 제거 — 매 호출마다 LLM 새로 실행 (사용자 요구).
+    결과는 여전히 DB 에 INSERT OR REPLACE 로 저장 — `applied/취소` 상태
+    보관 + 화면 새로고침 시 마지막 결과 복원 용도. `force` 파라미터는
+    호환성 위해 유지 (현재 동작에는 영향 없음).
     """
     ensure_schema()
     fqsig = ctx["fqsig"]
     bh = _body_hash(ctx["source"])
 
-    if not force:
-        hit = get_cached(project_id, fqsig, bh, model)
-        if hit:
-            return hit
-
-    prompt = build_prompt(ctx)
+    prompt = build_prompt(ctx, project_id=project_id)
     try:
         raw, dur = _call_ollama(model, SYSTEM_PROMPT, prompt)
     except Exception as e:
@@ -528,3 +601,4 @@ def build_context_from_db(project_id: str, fqsig: str) -> dict | None:
         "program_name": spec["program_name"] if spec else None,
         "module_description": spec["description"] if spec else None,
     }
+
