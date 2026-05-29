@@ -25,3 +25,7 @@ Thumbs.db
 # Logs
 *.log
 /tmp/
+
+# Local-only convenience scripts (each developer maintains their own)
+/run.bat
+/stop.bat
