@@ -66,7 +66,12 @@ def detect(project_id: str) -> dict:
       }
     """
     with get_conn() as c:
-        # exclude rows the user has manually confirmed — their issue is resolved
+        # Exclude rows the user explicitly resolved by picking a candidate
+        # (manual_override=1 → status=O, mapping is settled).
+        # Keep rows where the user CONFIRMED missing (manual_override=2 → status=X)
+        # so the spec-issues panel — and thus the [확정 취소] button — stays
+        # visible in the UI; otherwise the user would have no way to undo a
+        # mistaken confirmation.
         rows = [dict(r) for r in c.execute(
             """SELECT pr.id, pr.row_idx, pr.program_id, pr.program_name,
                       pr.kind_norm, pr.package, pr.module_name,
@@ -78,7 +83,7 @@ def detect(project_id: str) -> dict:
                LEFT JOIN mapping m ON m.program_row_id = pr.id
                LEFT JOIN source_file sf ON sf.id = m.source_file_id
                WHERE pr.project_id=?
-                 AND (m.manual_override IS NULL OR m.manual_override = 0)""",
+                 AND (m.manual_override IS NULL OR m.manual_override != 1)""",
             (project_id,),
         ).fetchall()]
         simple_index = _index_simple_names(c, project_id)

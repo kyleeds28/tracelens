@@ -139,6 +139,7 @@ def list_programs(project_id: str):
         rows = c.execute(
             """SELECT pr.*,
                       m.status, m.match_strategy, m.source_file_id,
+                      m.manual_override,
                       sf.rel_path, sf.lang
                FROM program_row pr
                LEFT JOIN mapping m ON m.program_row_id = pr.id
@@ -230,11 +231,13 @@ def run_mapping(project_id: str):
             "SELECT * FROM program_row WHERE project_id=?", (project_id,)
         ).fetchall()]
 
-        # Snapshot any human-confirmed (manual_override=1) mappings so re-match
-        # preserves the user's choice instead of clobbering it
+        # Snapshot any human-confirmed mappings so re-match preserves the
+        # user's choice instead of clobbering it.
+        #   manual_override = 1  → user picked a specific candidate file
+        #   manual_override = 2  → user confirmed "truly missing in code"
         manual = {
             r["program_row_id"]: dict(r) for r in c.execute(
-                "SELECT * FROM mapping WHERE project_id=? AND manual_override=1",
+                "SELECT * FROM mapping WHERE project_id=? AND manual_override IN (1, 2)",
                 (project_id,),
             ).fetchall()
         }
@@ -250,9 +253,10 @@ def run_mapping(project_id: str):
                     """INSERT INTO mapping
                        (project_id, program_row_id, source_file_id, status,
                         match_strategy, manual_override)
-                       VALUES (?,?,?,?,?,1)""",
+                       VALUES (?,?,?,?,?,?)""",
                     (project_id, r["id"], saved.get("source_file_id"),
-                     status, saved.get("match_strategy") or "manual"),
+                     status, saved.get("match_strategy") or "manual",
+                     saved.get("manual_override") or 1),
                 )
                 continue
             matched, strategy = match_program_row(r, files, cfg)
@@ -345,14 +349,81 @@ def select_mapping_candidate(project_id: str, row_id: int, body: dict):
 
 @app.delete("/api/projects/{project_id}/mapping/{row_id}/select")
 def unselect_mapping(project_id: str, row_id: int):
-    """Revoke a manual selection so re-match can pick this row again."""
+    """검수자의 수동 판단(선택 또는 불일치 확정)을 취소하고,
+    해당 한 행만 자동 매칭으로 즉시 재평가 — 판정 자체를 "다시 열린 상태"로 복원.
+
+    이렇게 해야 사용자가 취소 후 다시 후보 선택 화면을 그대로 받을 수 있다.
+    (이전엔 manual_override만 0으로 바뀌고 status/strategy가 'manual_missing' 그대로
+    남아 있어 화면 라벨이 'X · 검수자가 불일치 확정' 으로 잘못 표시되었음)
+    """
+    _get_project(project_id)
+    cfg = _load_cfg(project_id)
+    with get_conn() as c:
+        prow = c.execute(
+            "SELECT * FROM program_row WHERE id=? AND project_id=?",
+            (row_id, project_id),
+        ).fetchone()
+        if not prow:
+            raise HTTPException(404, f"program_row not found: {row_id}")
+        files = [dict(r) for r in c.execute(
+            "SELECT * FROM source_file WHERE project_id=?", (project_id,)
+        ).fetchall()]
+        matched, strategy = match_program_row(dict(prow), files, cfg)
+        status = status_from_strategy(strategy) if matched else "X"
+        c.execute(
+            """UPDATE mapping
+               SET source_file_id=?, status=?, match_strategy=?,
+                   manual_override=0, ast_json=NULL
+               WHERE project_id=? AND program_row_id=?""",
+            (matched["id"] if matched else None, status, strategy,
+             project_id, row_id),
+        )
+    return {"ok": True, "row_id": row_id,
+            "status": status, "match_strategy": strategy,
+            "source_file_id": matched["id"] if matched else None}
+
+
+@app.post("/api/projects/{project_id}/mapping/{row_id}/confirm-missing")
+def confirm_missing(project_id: str, row_id: int):
+    """검수자가 '이 모듈은 정말 코드에 없다'고 사람 눈으로 확정.
+
+    Sets status='X', source_file_id=NULL,
+    match_strategy='manual_missing', manual_override=2.
+    Re-match preserves this confirmation (won't try to auto-match again).
+    Undo via the same DELETE /select endpoint (sets manual_override=0)."""
     _get_project(project_id)
     with get_conn() as c:
-        c.execute(
-            "UPDATE mapping SET manual_override=0 WHERE project_id=? AND program_row_id=?",
+        prow = c.execute(
+            "SELECT id FROM program_row WHERE id=? AND project_id=?",
+            (row_id, project_id),
+        ).fetchone()
+        if not prow:
+            raise HTTPException(404, f"program_row not found: {row_id}")
+
+        existing = c.execute(
+            "SELECT id FROM mapping WHERE project_id=? AND program_row_id=?",
             (project_id, row_id),
-        )
-    return {"ok": True, "row_id": row_id}
+        ).fetchone()
+        if existing:
+            c.execute(
+                """UPDATE mapping
+                   SET source_file_id=NULL, status='X',
+                       match_strategy='manual_missing', manual_override=2,
+                       ast_json=NULL
+                   WHERE id=?""",
+                (existing["id"],),
+            )
+        else:
+            c.execute(
+                """INSERT INTO mapping
+                   (project_id, program_row_id, source_file_id, status,
+                    match_strategy, manual_override)
+                   VALUES (?,?,NULL,?,?,2)""",
+                (project_id, row_id, "X", "manual_missing"),
+            )
+    return {"ok": True, "row_id": row_id,
+            "status": "X", "match_strategy": "manual_missing",
+            "manual_override": 2}
 
 
 @app.get("/api/projects/{project_id}/rows/{row_id}/ast")
@@ -724,6 +795,7 @@ def project_or_program_summary(project_id: str, program_id: str | None = None):
     LLM_TO_STATUS = {
         "REAL_DELEGATION": "ok", "REAL_LOGIC": "ok",
         "STUB": "suspect", "NAME_MISMATCH": "suspect",
+        "MOVED_TO_SIBLING": "ok",     # dead-code 확인됨 — 정상 그룹
         "UNCLEAR": "unknown",
     }
 
@@ -747,16 +819,20 @@ def project_or_program_summary(project_id: str, program_id: str | None = None):
         layer_count[layer] = layer_count.get(layer, 0) + 1
 
         shape = m.get("body_shape") or ""
-        if shape in SHAPE_TO_STUB:
-            stubs[SHAPE_TO_STUB[shape]] += 1
-        if m.get("throws_not_impl"):
-            # ensure NotImpl is counted even if shape didn't match
-            pass
-
         s_status = SHAPE_TO_STATUS.get(shape, "unknown")
         static_status[s_status] += 1
 
         llm = llm_by_fqsig.get(m["fqsig"])
+        # LLM 으로 ok 승격된 케이스 미리 판정 — 스텁 카운트도 같이 제외
+        promoted_to_ok = (
+            llm and llm.get("applied") and llm.get("verdict")
+            and LLM_TO_STATUS.get(llm["verdict"]) == "ok"
+        )
+
+        # 스텁 분류 카운트: 정적 body 가 stub-* 이고 LLM 으로 정상화 안 된 것만
+        if shape in SHAPE_TO_STUB and not promoted_to_ok:
+            stubs[SHAPE_TO_STUB[shape]] += 1
+
         if llm and llm.get("verdict"):
             llm_analyzed += 1
             llm_verdict_dist[llm["verdict"]] = llm_verdict_dist.get(llm["verdict"], 0) + 1
@@ -828,3 +904,4 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+

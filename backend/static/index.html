@@ -430,8 +430,6 @@
             <div class="val">
               <span class="sumchip info">분석 <b>{{ projectSummary.llm.analyzed }}</b></span>
               <span class="sumchip ok">적용 <b>{{ projectSummary.llm.applied }}</b></span>
-              <span v-if="projectSummary.llm.overrode_to_ok" class="sumchip ok">정정 → 정상 <b>{{ projectSummary.llm.overrode_to_ok }}</b></span>
-              <span v-if="projectSummary.llm.overrode_to_suspect" class="sumchip suspect">정정 → 의심 <b>{{ projectSummary.llm.overrode_to_suspect }}</b></span>
               <span v-if="projectSummary.llm.analyzed === 0" class="small">아직 AI 분석 안 함</span>
             </div>
           </div>
@@ -541,8 +539,6 @@
             <div class="val">
               <span class="sumchip info">분석 <b>{{ programSummary.llm.analyzed }}</b></span>
               <span class="sumchip ok">적용 <b>{{ programSummary.llm.applied }}</b></span>
-              <span v-if="programSummary.llm.overrode_to_ok" class="sumchip ok">정정 → 정상 <b>{{ programSummary.llm.overrode_to_ok }}</b></span>
-              <span v-if="programSummary.llm.overrode_to_suspect" class="sumchip suspect">정정 → 의심 <b>{{ programSummary.llm.overrode_to_suspect }}</b></span>
             </div>
           </div>
 
@@ -575,6 +571,10 @@
                 <td>{{ r.dev_type || '-' }}</td>
                 <td>
                   <span class="badge" :class="'b-' + (r.status || 'NA')">{{ statusLabel(r.status) }}</span>
+                  <span v-if="r.manual_override === 1" class="badge" style="background:#a78bfa;color:#0b1220;font-weight:700;margin-left:4px"
+                        title="검수자가 수동으로 매핑한 결과 — re-match 해도 유지">✋ 사람</span>
+                  <span v-else-if="r.manual_override === 2" class="badge" style="background:#fca5a5;color:#0b1220;font-weight:700;margin-left:4px"
+                        title="검수자가 '코드에 없다'고 확정 — re-match 해도 유지">🚫 확정</span>
                   <div style="font-size:10px;color:var(--muted);margin-top:2px" :title="r.match_strategy || ''">{{ strategyLabel(r.match_strategy) }}</div>
                 </td>
                 <td style="font-family:Consolas,monospace;font-size:11px;max-width:240px;word-break:break-all">{{ r.rel_path || '-' }}</td>
@@ -644,16 +644,50 @@
                         <div v-if="(issuesByRow[r.id].similar_names||[]).length" class="diff-row">
                           <div class="lbl">유사 후보</div>
                           <div>
-                            <div v-for="s in dedupeBy(issuesByRow[r.id].similar_names, 'fqcn')" :key="s.fqcn" class="candidate">
+                            <div v-for="s in dedupeBy(issuesByRow[r.id].similar_names, 'fqcn')" :key="s.fqcn" class="candidate"
+                                 :style="r.manual_override === 2 ? 'opacity:.45' : ''">
                               ~ <b>{{ s.simple_name }}</b> <span class="small">({{ s.fqcn }})</span>
                               <button class="btn-apply" style="padding:2px 8px;margin-left:6px"
                                       @click="selectCandidate(r.id, s.fqcn)"
-                                      title="이 파일을 이 모듈의 정답으로 영구 매핑">선택</button>
+                                      :disabled="r.manual_override === 2"
+                                      :title="r.manual_override === 2 ? '불일치 확정 상태 — 먼저 확정을 취소해야 선택 가능' : '이 파일을 이 모듈의 정답으로 영구 매핑'">선택</button>
+                            </div>
+                            <div v-if="r.manual_override === 2" class="small" style="margin-top:6px;color:var(--muted)">
+                              🔒 확정 상태에서는 선택 불가 — 아래 [확정 취소] 후 다시 선택할 수 있습니다.
                             </div>
                           </div>
                         </div>
                         <div v-else class="small" style="margin-top:6px">유사 이름 후보 없음 — 완전히 삭제되었을 가능성</div>
                         <div class="small" style="margin-top:6px">💡 {{ issuesByRow[r.id].suggestion }}</div>
+                        <!-- 검수자 판단 영역 -->
+                        <div class="diff-row" style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">
+                          <div class="lbl">검수자 판단</div>
+                          <div>
+                            <template v-if="r.manual_override === 2">
+                              <span class="badge b-X" style="font-weight:600">🚫 사람 확정: 코드에 없음</span>
+                              <button class="btn-apply" style="padding:3px 10px;margin-left:8px;background:#475569;color:#fff"
+                                      @click="undoManualMissing(r.id)"
+                                      title="확정을 취소하면 위 유사 후보 [선택] 버튼이 다시 활성화됩니다">
+                                ↶ 확정 취소
+                              </button>
+                            </template>
+                            <template v-else>
+                              <div class="small" style="margin-bottom:6px;color:var(--text)">
+                                다음 중 하나를 선택할 수 있습니다 (선택 안 해도 됩니다 — 그대로 두면 자동 X 상태):
+                              </div>
+                              <div class="small" style="line-height:1.8">
+                                • 위 후보 중 정답이 있다 → 해당 <b>[선택]</b> 버튼 클릭<br>
+                                • 어느 후보도 정답 아니다 (정말 코드에 없음) → 아래 <b>[불일치 확정]</b> 클릭<br>
+                                • 더 검토 필요 → 그대로 둠
+                              </div>
+                              <button class="copy-btn" style="margin-top:8px;padding:3px 10px"
+                                      @click="confirmMissing(r.id)"
+                                      title="유사 후보 어느 것도 맞지 않다고 검수자가 판단 — 확정 후 [확정 취소] 로 언제든 되돌릴 수 있음">
+                                🚫 불일치 확정
+                              </button>
+                            </template>
+                          </div>
+                        </div>
                       </template>
                     </div>
 
@@ -796,8 +830,8 @@
                                 </td>
                                 <td>
                                   <div class="metric-mini">
-                                    out=<b>{{ fn.fan_out }}</b><br>
-                                    in=<b>{{ (getSem(r.id, fn) || {}).fan_in_count != null ? getSem(r.id, fn).fan_in_count : '-' }}</b>
+                                    호출=<b>{{ (getSem(r.id, fn) && getSem(r.id, fn).calls) ? getSem(r.id, fn).calls.length : fn.fan_out }}</b><br>
+                                    참조=<b>{{ (getSem(r.id, fn) || {}).fan_in_count != null ? getSem(r.id, fn).fan_in_count : '-' }}</b>
                                   </div>
                                 </td>
                                 <td>
@@ -891,7 +925,7 @@
                                   </template>
                                   <template v-else-if="getSem(r.id, fn) && (getSem(r.id, fn).calls||[]).length">
                                     <span class="small">
-                                      <b>{{ (getSem(r.id, fn).calls||[]).filter(c=>c.resolved).length }}</b>/{{ getSem(r.id, fn).calls.length }} 호출 해석
+                                      식별된 호출 <b>{{ (getSem(r.id, fn).calls||[]).filter(c=>c.resolved).length }}</b>/{{ getSem(r.id, fn).calls.length }}
                                     </span>
                                     <div v-if="evidenceCalls(getSem(r.id, fn)).length" class="small ev-none">
                                       <div v-for="c in evidenceCalls(getSem(r.id, fn))" :key="c.target_fqsig">
@@ -1045,6 +1079,8 @@ createApp({
       'any_name'       : '파일명 일치 (종류 미지정)',
       'no_module_name' : '산출문서에 모듈명 없음',
       'unknown_kind'   : '산출문서의 종류 미지정',
+      'manual'         : '검수자 수동 매핑',
+      'manual_missing' : '검수자가 불일치 확정',
     };
     const ISSUE_KIND_LABEL = {
       'PACKAGE_DRIFT'  : '패키지 정정 필요',
@@ -1245,6 +1281,33 @@ createApp({
         const ns = { ...semByRow.value }; delete ns[rowId]; semByRow.value = ns;
       } catch(e){
         alert('선택 실패: ' + e.message);
+      }
+    }
+
+    /** 검수자가 [불일치 확정] — 유사 후보 어느 것도 정답 아님을 사람 눈으로 확정.
+     *  status=X, source_file=NULL, match_strategy=manual_missing, manual_override=2.
+     *  이후 re-match 해도 보존됨. */
+    async function confirmMissing(rowId){
+      if (!confirm('이 모듈이 코드에 정말 없다고 확정합니까?\n(re-match 해도 자동 매칭을 다시 시도하지 않습니다)')) return;
+      try {
+        await api('POST',
+          `/api/projects/${currentProjectId.value}/mapping/${rowId}/confirm-missing`);
+        await loadProject();
+        await loadIssueSummary();
+      } catch(e){
+        alert('확정 실패: ' + e.message);
+      }
+    }
+
+    /** 사람이 확정한 불일치를 취소 — 다시 자동 매칭 시도 대상으로 되돌림. */
+    async function undoManualMissing(rowId){
+      try {
+        await api('DELETE',
+          `/api/projects/${currentProjectId.value}/mapping/${rowId}/select`);
+        await loadProject();
+        await loadIssueSummary();
+      } catch(e){
+        alert('취소 실패: ' + e.message);
       }
     }
 
@@ -1464,7 +1527,14 @@ createApp({
       'empty_return'     : '`return;` (값 반환 없음)',
     };
     function staticBasis(fn){
-      return STATIC_BASIS[fn && fn.body_class] || null;
+      if (!fn) return null;
+      // Constructors are not methods — give them their own description so the
+      // 근거 column doesn't mislabel `super(...)` + field init as abstract.
+      if (fn.kind === 'constructor_declaration') {
+        if (fn.body_class === 'empty') return '빈 생성자 — 객체 생성 시 별도 초기화 없음';
+        return '생성자 본문 — 객체 초기화 (super 호출 / 필드 세팅 / DI 주입 저장)';
+      }
+      return STATIC_BASIS[fn.body_class] || null;
     }
 
     // ---------- Lombok detection ----------
@@ -1646,19 +1716,21 @@ createApp({
 
     // Map LLM verdict → effective row status grouping (ok / suspect / unknown)
     const LLM_VERDICT_TO_STATUS = {
-      REAL_DELEGATION: 'ok',
-      REAL_LOGIC     : 'ok',
-      STUB           : 'suspect',
-      NAME_MISMATCH  : 'suspect',
-      UNCLEAR        : 'unknown',
+      REAL_DELEGATION : 'ok',
+      REAL_LOGIC      : 'ok',
+      STUB            : 'suspect',
+      NAME_MISMATCH   : 'suspect',
+      MOVED_TO_SIBLING: 'ok',          // dead-code 확인된 상태 — 정상으로 분류
+      UNCLEAR         : 'unknown',
     };
 
     const LLM_VERDICT_LABEL = {
-      REAL_DELEGATION: '실제 위임',
-      REAL_LOGIC     : '실제 로직',
-      STUB           : '미구현 stub',
-      NAME_MISMATCH  : '이름·본문 불일치',
-      UNCLEAR        : '판단 모호',
+      REAL_DELEGATION : '실제 위임',
+      REAL_LOGIC      : '실제 로직',
+      STUB            : '미구현 stub',
+      NAME_MISMATCH   : '이름·본문 불일치',
+      MOVED_TO_SIBLING: '대체 구현',
+      UNCLEAR         : '판단 모호',
     };
     function llmVerdictLabel(v){ return LLM_VERDICT_LABEL[v] || (v || '판정 없음'); }
 
@@ -1800,9 +1872,9 @@ createApp({
       );
       switch (verdict) {
         case 'REAL_DELEGATION':
-          if (hasEndpoint || layer === 'CONTROLLER') return '컨트롤러 위임';
-          if (layer === 'SERVICE') return '서비스 위임';
-          return '메서드 위임';
+          if (hasEndpoint || layer === 'CONTROLLER') return '서비스로 위임';
+          if (layer === 'SERVICE') return '타 메서드로 위임';
+          return '위임만';
         case 'REAL_LOGIC':
           // mirror static tiering thresholds (LOGIC_LIGHT/NORMAL/COMPLEX)
           if (sloc >= 40 || cc >= 8) return '구현됨 (복잡)';
@@ -1812,6 +1884,8 @@ createApp({
           return '미구현 stub';
         case 'NAME_MISMATCH':
           return '이름·본문 불일치';
+        case 'MOVED_TO_SIBLING':
+          return '대체 구현';
         case 'UNCLEAR':
           return '판단 모호';
         default:
@@ -1819,10 +1893,16 @@ createApp({
       }
     }
 
+    /** LLM 적용 시 원래 정적 라벨 → 새 라벨 형태로 표시. 둘이 같으면 한 개만. */
     function effectiveLabel(rowId, fn){
       const r = llmResultFor(rowId, fn);
       if (r && r.applied && r.verdict) {
-        return llmVerdictToStaticLabel(r.verdict, fn, getSem(rowId, fn));
+        const newLabel = llmVerdictToStaticLabel(r.verdict, fn, getSem(rowId, fn));
+        const origLabel = fn.label_kr;
+        if (origLabel && origLabel !== newLabel) {
+          return `${origLabel} → ${newLabel}`;
+        }
+        return newLabel;
       }
       return fn.label_kr || '-';
     }
@@ -2013,6 +2093,7 @@ createApp({
       projectSummary, programSummary,
       sumPct, sumBarTip, anyStub, sortedLayers,
       issueSummary, issuesByRow, copy, dedupeBy, selectCandidate,
+      confirmMissing, undoManualMissing,
       statusLabel, strategyLabel, issueKindLabel,
       shapeLabel, semSloc,
       onAiReviewClick,
