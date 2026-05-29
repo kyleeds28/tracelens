@@ -29,6 +29,7 @@ STATEMENT_TYPES = {
         "return_statement", "throw_statement", "try_statement",
         "switch_statement", "synchronized_statement", "yield_statement",
         "break_statement", "continue_statement", "assert_statement",
+        "explicit_constructor_invocation",  # super(...) / this(...) in constructor body
     },
     "python": {
         "expression_statement", "if_statement", "for_statement",
@@ -143,6 +144,7 @@ VERDICT_STATUS = {
     "GENERATED":           "ok",
     "DECLARATION":         "ok",
     "ABSTRACT":            "ok",
+    "CONSTRUCTOR":         "ok",   # 객체 초기화 — Java 생성자
     # 정상 — 본문 있음 (tier)
     "LOGIC_LIGHT":         "ok",   # 짧은 본문 (5~9 SLOC 등)
     "LOGIC_NORMAL":        "ok",   # 일반 본문
@@ -160,14 +162,15 @@ VERDICT_STATUS = {
 }
 
 VERDICT_LABEL_KR = {
-    "HANDLER_DELEGATION":  "컨트롤러 위임",
+    "HANDLER_DELEGATION":  "서비스로 위임",
     "HANDLER_PROCESSING":  "컨트롤러 처리",
-    "SERVICE_DELEGATION":  "서비스 위임",
-    "DELEGATION":          "메서드 위임",
+    "SERVICE_DELEGATION":  "타 메서드로 위임",
+    "DELEGATION":          "위임만",
     "ACCESSOR":            "필드 접근자",
     "GENERATED":           "프레임워크 자동 생성",
     "DECLARATION":         "인터페이스 선언",
     "ABSTRACT":            "추상 메서드",
+    "CONSTRUCTOR":         "생성자",
     "LOGIC_LIGHT":         "구현됨 (단순)",
     "LOGIC_NORMAL":        "구현됨 (보통)",
     "LOGIC_COMPLEX":       "구현됨 (복잡)",
@@ -412,7 +415,8 @@ def _classify_java_single_stmt(stmt, source_bytes: bytes) -> str:
 def _classify_java_body(body_node, source_bytes: bytes) -> str:
     if body_node is None:
         return "no_body"
-    if _kind(body_node) != "block":
+    # `block` = regular method body / `constructor_body` = constructor body
+    if _kind(body_node) not in ("block", "constructor_body"):
         return "no_body"
     stmts = _named_stmts(body_node)
     if not stmts:
@@ -522,8 +526,15 @@ def _classify_body(body_node, source_bytes: bytes, lang: str) -> str:
 # ---- combined verdict ----
 
 def _verdict(body_class: str, class_kind: str, class_anns: list[str],
-             method_anns: list[str], cc: int, sloc: int) -> str:
-    """Produce a coarse verdict label combining body shape and context."""
+             method_anns: list[str], cc: int, sloc: int,
+             node_kind: str | None = None) -> str:
+    """Produce a coarse verdict label combining body shape and context.
+
+    `node_kind` is the AST kind of the function-like node itself
+    (e.g. method_declaration / constructor_declaration). Constructors get
+    their own verdict regardless of body classification — even an empty
+    constructor is a valid `생성자`, not an abstract method.
+    """
     cset = set(class_anns)
     mset = set(method_anns)
 
@@ -534,6 +545,11 @@ def _verdict(body_class: str, class_kind: str, class_anns: list[str],
     is_repo = bool(cset & FRAMEWORK_CLASS_ANN["repository"])
     is_entity = bool(cset & FRAMEWORK_CLASS_ANN["entity"])
     has_endpoint = bool(mset & ENDPOINT_ANN)
+
+    # Constructor short-circuit — same-name "function" is Java's object init,
+    # not a method; even with `super(...)` only it is a valid implementation.
+    if node_kind == "constructor_declaration":
+        return "CONSTRUCTOR"
 
     # Generated / declaration patterns (no_body is expected)
     if body_class == "no_body":
@@ -748,6 +764,7 @@ def _method_metrics(node, source_bytes: bytes, lang: str) -> dict:
     verdict = _verdict(
         body_class, class_kind, class_anns, method_anns,
         body_metrics["cyclomatic_complexity"], sloc,
+        node_kind=_kind(node),
     )
     status = VERDICT_STATUS.get(verdict, "unknown")
     label_kr = VERDICT_LABEL_KR.get(verdict, "판정 불가")
