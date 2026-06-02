@@ -11,7 +11,8 @@
     --border:#334155;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:13px;line-height:1.5}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:16px;line-height:1.55}
+  body{zoom:1.18}
   a{color:var(--accent);text-decoration:none;cursor:pointer}
   header{padding:12px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:var(--panel)}
   header h1{font-size:16px;margin:0;font-weight:600}
@@ -382,9 +383,9 @@
           <div class="sumrow">
             <div class="lbl">매칭</div>
             <div class="val">
-              <span class="sumchip ok">일치 <b>{{ projectSummary.mapping_status.O }}</b></span>
-              <span class="sumchip warn">부분 <b>{{ projectSummary.mapping_status.PARTIAL }}</b></span>
-              <span class="sumchip suspect">불일치 <b>{{ projectSummary.mapping_status.X }}</b></span>
+              <span class="sumchip ok">일치 <b>{{ projectSummary.mapping_status.O }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(projectSummary.mapping_status, 'O') }}%)</span></span>
+              <span class="sumchip warn">부분 <b>{{ projectSummary.mapping_status.PARTIAL }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(projectSummary.mapping_status, 'PARTIAL') }}%)</span></span>
+              <span class="sumchip suspect">불일치 <b>{{ projectSummary.mapping_status.X }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(projectSummary.mapping_status, 'X') }}%)</span></span>
               <div class="barwrap" :title="sumBarTip(projectSummary.mapping_status, ['O','PARTIAL','X'])">
                 <div v-for="k in ['O','PARTIAL','X']" :key="k"
                      :class="'bar-'+k"
@@ -396,9 +397,9 @@
           <div class="sumrow">
             <div class="lbl">메서드 상태</div>
             <div class="val">
-              <span class="sumchip ok">정상 <b>{{ projectSummary.method_status_effective.ok }}</b></span>
-              <span class="sumchip suspect">의심 <b>{{ projectSummary.method_status_effective.suspect }}</b></span>
-              <span class="sumchip unknown">알수없음 <b>{{ projectSummary.method_status_effective.unknown }}</b></span>
+              <span class="sumchip ok">정상 <b>{{ projectSummary.method_status_effective.ok }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(projectSummary.method_status_effective, 'ok') }}%)</span></span>
+              <span class="sumchip suspect">의심 <b>{{ projectSummary.method_status_effective.suspect }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(projectSummary.method_status_effective, 'suspect') }}%)</span></span>
+              <span class="sumchip unknown">알수없음 <b>{{ projectSummary.method_status_effective.unknown }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(projectSummary.method_status_effective, 'unknown') }}%)</span></span>
               <div class="barwrap" :title="sumBarTip(projectSummary.method_status_effective, ['ok','suspect','unknown'])">
                 <div v-for="k in ['ok','suspect','unknown']" :key="k"
                      :class="'bar-'+k"
@@ -491,9 +492,9 @@
           <div class="sumrow">
             <div class="lbl">매칭</div>
             <div class="val">
-              <span class="sumchip ok">일치 <b>{{ programSummary.mapping_status.O }}</b></span>
-              <span class="sumchip warn">부분 <b>{{ programSummary.mapping_status.PARTIAL }}</b></span>
-              <span class="sumchip suspect">불일치 <b>{{ programSummary.mapping_status.X }}</b></span>
+              <span class="sumchip ok">일치 <b>{{ programSummary.mapping_status.O }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(programSummary.mapping_status, 'O') }}%)</span></span>
+              <span class="sumchip warn">부분 <b>{{ programSummary.mapping_status.PARTIAL }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(programSummary.mapping_status, 'PARTIAL') }}%)</span></span>
+              <span class="sumchip suspect">불일치 <b>{{ programSummary.mapping_status.X }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(programSummary.mapping_status, 'X') }}%)</span></span>
               <div class="barwrap">
                 <div v-for="k in ['O','PARTIAL','X']" :key="k"
                      :class="'bar-'+k"
@@ -505,9 +506,9 @@
           <div class="sumrow" v-if="programSummary.totals.methods">
             <div class="lbl">메서드 상태</div>
             <div class="val">
-              <span class="sumchip ok">정상 <b>{{ programSummary.method_status_effective.ok }}</b></span>
-              <span class="sumchip suspect">의심 <b>{{ programSummary.method_status_effective.suspect }}</b></span>
-              <span class="sumchip unknown">알수없음 <b>{{ programSummary.method_status_effective.unknown }}</b></span>
+              <span class="sumchip ok">정상 <b>{{ programSummary.method_status_effective.ok }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(programSummary.method_status_effective, 'ok') }}%)</span></span>
+              <span class="sumchip suspect">의심 <b>{{ programSummary.method_status_effective.suspect }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(programSummary.method_status_effective, 'suspect') }}%)</span></span>
+              <span class="sumchip unknown">알수없음 <b>{{ programSummary.method_status_effective.unknown }}</b> <span style="opacity:.7;font-size:10px">({{ sumPct(programSummary.method_status_effective, 'unknown') }}%)</span></span>
               <div class="barwrap">
                 <div v-for="k in ['ok','suspect','unknown']" :key="k"
                      :class="'bar-'+k"
@@ -553,6 +554,23 @@
           </div>
         </div>
 
+        <!-- 요약 뷰 ↔ 모듈 상세 뷰 전환 버튼 -->
+        <div style="margin:18px 0 8px;padding:10px 14px;background:rgba(56,189,248,.06);border:1px dashed rgba(56,189,248,.35);border-radius:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button @click="showModuleDetail = !showModuleDetail" class="secondary"
+                  style="padding:6px 14px;font-size:12px;font-weight:600">
+            {{ showModuleDetail ? '▴ 모듈 상세 숨김 (요약만 보기)' : '🔍 모듈 상세 보기' }}
+          </button>
+          <span class="small" style="color:var(--muted)">
+            <template v-if="!showModuleDetail">
+              위 수치가 어떻게 나왔는지 모듈별 상세를 보려면 클릭하세요
+            </template>
+            <template v-else>
+              모듈 단위 상세 분석 표시 중. 요약 뷰로 돌아가려면 다시 클릭
+            </template>
+          </span>
+        </div>
+
+        <div v-if="showModuleDetail">
         <h2 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin:14px 0 8px">모듈 목록</h2>
         <table class="module-table">
           <thead>
@@ -990,6 +1008,7 @@
             </template>
           </tbody>
         </table>
+        </div><!-- /showModuleDetail wrap -->
       </div>
     </section>
   </main>
@@ -1064,6 +1083,7 @@ createApp({
     // summary aggregates
     const projectSummary = ref(null);     // 프로젝트 전체 요약
     const programSummary = ref(null);     // 선택된 프로그램 요약
+    const showModuleDetail = ref(false);  // 임원/PM 뷰(false=요약만) ↔ 개발자/PL 뷰(true=모듈 상세 포함)
 
     // ---- user-friendly labels ----
     const STATUS_LABEL = { O: '일치', PARTIAL: '부분 일치', X: '불일치' };
@@ -1248,6 +1268,7 @@ createApp({
     // Re-load program summary whenever selection changes
     watch(selectedProgramId, (pid) => {
       programSummary.value = null;
+      showModuleDetail.value = false;   // 새 프로그램 선택 시 항상 요약만 표시 (임원/PM 뷰)
       if (pid) loadProgramSummary(pid);
     });
 
@@ -2090,7 +2111,7 @@ createApp({
       isLombokClass, lombokHints, fileHasLombokOnly,
       kindLabel, kindDesc,
       detectSuffix, deriveLayer, layerCssClass, fqcnFromSig,
-      projectSummary, programSummary,
+      projectSummary, programSummary, showModuleDetail,
       sumPct, sumBarTip, anyStub, sortedLayers,
       issueSummary, issuesByRow, copy, dedupeBy, selectCandidate,
       confirmMissing, undoManualMissing,
