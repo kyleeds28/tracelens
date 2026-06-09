@@ -14,6 +14,7 @@ from sources import extract_archive, walk_files
 from spec import group_by_program, load_mapping, load_spec
 import java_semantic
 import spec_issues
+import unknown_triage
 import llm_analysis
 
 APP_ROOT = Path(__file__).parent
@@ -574,6 +575,14 @@ def get_java_semantic_by_fqcn(project_id: str, fqcn: str):
 def get_java_semantic_chain(project_id: str, fqsig: str, max_depth: int = 6):
     _get_project(project_id)
     return {"chain": java_semantic.trace_chain(project_id, fqsig, max_depth=max_depth)}
+
+
+@app.get("/api/projects/{project_id}/semantic/unknown")
+def get_unknown_triage(project_id: str):
+    """UNKNOWN-layer classes tagged + grouped (suspect vs ignorable), with
+    mapping status — for the '미분류 코드 점검' panel."""
+    _get_project(project_id)
+    return unknown_triage.detect(project_id)
 
 
 # ---------------- LLM gray-zone analysis ----------------

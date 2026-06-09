@@ -191,6 +191,10 @@
   .bar-X{background:#ef4444}
   .layer-tag{display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;background:#1a2438;color:var(--muted);margin:2px}
   .layer-tag b{color:var(--text);margin-left:3px}
+  .tagfilter{background:var(--panel2);color:var(--muted);border:1px solid var(--border);padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;cursor:pointer}
+  .tagfilter:hover{color:var(--text)}
+  .tagfilter.active{background:var(--accent);color:#0b1220;border-color:var(--accent)}
+  .tagfilter.suspect.active{background:var(--bad);border-color:var(--bad);color:#fff}
   .class-meta{background:#0b1220;border:1px solid var(--border);border-radius:5px;padding:8px 12px;margin-bottom:8px;font-size:11px}
   .class-meta b{font-family:Consolas,monospace}
   .metric-mini{font-family:Consolas,monospace;font-size:11px;line-height:1.4;color:var(--muted);white-space:nowrap}
@@ -423,6 +427,63 @@
             <div class="val">
               <span v-for="(n, layer) in sortedLayers(projectSummary.method_layer)" :key="layer"
                     class="layer-tag">{{ layer }} <b>{{ n }}</b></span>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="unknownTriage && unknownTriage.class_count">
+            <div class="lbl">미분류 점검</div>
+            <div class="val">
+              <span class="sumchip suspect">1순위 <b>{{ unknownTriage.by_group.suspect || 0 }}</b></span>
+              <span class="sumchip">2순위 <b>{{ unknownTriage.by_group.ignorable || 0 }}</b></span>
+              <span class="small" style="color:var(--muted)">
+                ({{ unknownTriage.class_count }}개 클래스 · {{ unknownTriage.total_methods }} 메서드)
+              </span>
+              <button @click="showUnknownPanel = !showUnknownPanel" class="secondary"
+                      style="padding:3px 10px;font-size:11px;margin-left:6px">
+                {{ showUnknownPanel ? '▴ 닫기' : '🔍 목록 보기' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="sumrow" v-if="showUnknownPanel && unknownTriage && unknownTriage.class_count">
+            <div class="lbl"></div>
+            <div class="val" style="display:block">
+              <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                <span class="small" style="color:var(--muted);margin-right:4px">태그 필터:</span>
+                <button class="tagfilter" :class="{active: unknownTagFilter==='ALL'}"
+                        @click="unknownTagFilter='ALL'">전체 ({{ unknownTriage.class_count }})</button>
+                <button class="tagfilter suspect" :class="{active: unknownTagFilter==='suspect'}"
+                        @click="unknownTagFilter='suspect'">1순위 ({{ unknownTriage.by_group.suspect||0 }})</button>
+                <button class="tagfilter" :class="{active: unknownTagFilter==='ignorable'}"
+                        @click="unknownTagFilter='ignorable'">2순위 ({{ unknownTriage.by_group.ignorable||0 }})</button>
+                <span style="width:8px"></span>
+                <button v-for="(cnt, tag) in unknownTriage.by_tag" :key="tag"
+                        class="tagfilter" :class="{active: unknownTagFilter===tag}"
+                        @click="unknownTagFilter=tag">{{ tagLabel(tag) }} ({{ cnt }})</button>
+              </div>
+              <table class="module-table" style="font-size:11px">
+                <thead>
+                  <tr><th>검토순위</th><th>태그</th><th>클래스</th><th>패키지</th><th style="text-align:center">메서드</th><th style="text-align:center">산출문서</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in filteredUnknown" :key="c.fqcn"
+                      :title="c.rel_path || c.fqcn">
+                    <td><span class="st" :class="c.group==='suspect' ? 'st-suspect' : 'st-unknown'">{{ c.group_label }}</span></td>
+                    <td><span class="layer-tag">{{ c.tag_label }}</span></td>
+                    <td style="font-family:Consolas,monospace">{{ c.simple_name }}</td>
+                    <td style="color:var(--muted)">{{ c.package }}</td>
+                    <td style="text-align:center">{{ c.method_count }}</td>
+                    <td style="text-align:center">
+                      <span v-if="c.mapped" class="st st-ok" title="산출문서에 매핑됨">매핑됨</span>
+                      <span v-else class="st st-suspect" title="산출문서에 매핑 안 됨 (누락 후보)">미매핑</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="small" style="color:var(--muted);margin-top:6px">
+                💡 "1순위 + 미매핑" 항목이 산출문서 누락 의심 대상입니다.
+                테스트·인터셉터·컨버터 등은 보통 문서화 대상이 아닙니다.
+              </div>
             </div>
           </div>
 
@@ -1084,6 +1145,22 @@ createApp({
     const projectSummary = ref(null);     // 프로젝트 전체 요약
     const programSummary = ref(null);     // 선택된 프로그램 요약
     const showModuleDetail = ref(false);  // 임원/PM 뷰(false=요약만) ↔ 개발자/PL 뷰(true=모듈 상세 포함)
+    const unknownTriage = ref(null);      // UNKNOWN 계층 점검 데이터
+    const showUnknownPanel = ref(false);  // 미분류 점검 목록 펼침 여부
+    const unknownTagFilter = ref('ALL');  // ALL | suspect | ignorable | <tag>
+
+    const UNKNOWN_TAG_LABEL = {
+      'ENTITY_SUSPECT': '엔티티 의심', 'EXTERNAL_INTERFACE': '외부연동 인터페이스',
+      'OTHER_SUSPECT': '기타 미분류', 'TEST': '테스트', 'INTERCEPTOR': '인터셉터/필터',
+      'CONVERTER': '컨버터', 'VALIDATOR': '검증기', 'INFRA': '기타 인프라',
+    };
+    function tagLabel(t){ return UNKNOWN_TAG_LABEL[t] || t; }
+    const filteredUnknown = computed(() => {
+      if (!unknownTriage.value) return [];
+      const f = unknownTagFilter.value;
+      return unknownTriage.value.classes.filter(c =>
+        f === 'ALL' || c.group === f || c.tag === f);
+    });
 
     // ---- user-friendly labels ----
     const STATUS_LABEL = { O: '일치', PARTIAL: '부분 일치', X: '불일치' };
@@ -1253,6 +1330,15 @@ createApp({
       projectSummary.value = null;
       try {
         projectSummary.value = await api('GET', `/api/projects/${currentProjectId.value}/summary`);
+      } catch(_) {}
+      loadUnknownTriage();
+    }
+
+    async function loadUnknownTriage(){
+      unknownTriage.value = null;
+      unknownTagFilter.value = 'ALL';
+      try {
+        unknownTriage.value = await api('GET', `/api/projects/${currentProjectId.value}/semantic/unknown`);
       } catch(_) {}
     }
 
@@ -2112,6 +2198,7 @@ createApp({
       kindLabel, kindDesc,
       detectSuffix, deriveLayer, layerCssClass, fqcnFromSig,
       projectSummary, programSummary, showModuleDetail,
+      unknownTriage, showUnknownPanel, unknownTagFilter, filteredUnknown, tagLabel,
       sumPct, sumBarTip, anyStub, sortedLayers,
       issueSummary, issuesByRow, copy, dedupeBy, selectCandidate,
       confirmMissing, undoManualMissing,
