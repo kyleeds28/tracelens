@@ -9,18 +9,23 @@
     --bg:#0f172a; --panel:#1e293b; --panel2:#334155; --muted:#94a3b8;
     --text:#e2e8f0; --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
     --border:#334155;
+    --zoom:1.18;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:16px;line-height:1.55}
-  body{zoom:1.18}
+  body{zoom:var(--zoom)}
+  /* app-shell: 헤더 고정 + 본문(목록/상세)만 내부 스크롤 → 창 스크롤바 제거.
+     body{zoom} 때문에 100vh 가 zoom 배만큼 부풀어 창 스크롤바가 생기므로
+     실제 뷰포트에 맞도록 zoom 으로 나눈 높이를 셸에 준다. */
+  #app{display:flex;flex-direction:column;height:calc(100vh / var(--zoom));overflow:hidden}
   a{color:var(--accent);text-decoration:none;cursor:pointer}
-  header{padding:12px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:var(--panel)}
+  header{flex:0 0 auto;padding:12px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:var(--panel)}
   header h1{font-size:16px;margin:0;font-weight:600}
   .back{cursor:pointer;background:var(--panel2);border:none;color:var(--text);padding:5px 10px;border-radius:4px;font-size:12px}
   .back:hover{background:#475569}
 
   /* main = project list */
-  .home{padding:22px 28px;max-width:1200px;margin:0 auto}
+  .home{flex:1 1 auto;min-height:0;overflow-y:auto;width:100%;padding:22px 28px;max-width:1200px;margin:0 auto}
   .home h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px}
   .upload-form{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end}
   .upload-form .field{display:flex;flex-direction:column}
@@ -35,9 +40,9 @@
   .project-card .actions{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:10px;font-size:11px;color:var(--muted)}
 
   /* detail */
-  main{display:grid;grid-template-columns:380px 1fr;min-height:calc(100vh - 53px)}
-  .sidebar{border-right:1px solid var(--border);padding:14px 16px;overflow-y:auto;max-height:calc(100vh - 53px)}
-  .content{padding:16px 22px;overflow-y:auto;max-height:calc(100vh - 53px)}
+  main{display:grid;grid-template-columns:380px 1fr;flex:1 1 auto;min-height:0}
+  .sidebar{border-right:1px solid var(--border);padding:14px 16px;overflow-y:auto;min-height:0}
+  .content{padding:16px 22px;overflow-y:auto;min-height:0}
 
   .section{margin-bottom:18px}
   .section h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px}
@@ -153,6 +158,9 @@
   .llm-result .v-UNCLEAR{color:#cbd5e1}
   .llm-result .reasoning{color:var(--text);margin:3px 0}
   .llm-result .intent{color:var(--muted);font-style:italic}
+  .llm-result .evidence{margin:4px 0;padding:3px 7px;border-left:2px solid #c4b5fd;background:rgba(168,85,247,.10);border-radius:2px}
+  .llm-result .evidence code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#ddd6fe;white-space:pre-wrap;word-break:break-all}
+  .llm-result .evidence .ev-label{color:#a78bfa;font-size:9px;font-weight:600;margin-right:5px}
   .llm-result .concern{color:#fbbf24;font-size:10px;display:block;margin-top:2px}
   .llm-err{color:var(--bad);font-size:11px;margin-top:4px}
   .ai-mark{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:rgba(168,85,247,.18);color:#c4b5fd;margin-left:4px;cursor:help}
@@ -195,6 +203,73 @@
   .tagfilter:hover{color:var(--text)}
   .tagfilter.active{background:var(--accent);color:#0b1220;border-color:var(--accent)}
   .tagfilter.suspect.active{background:var(--bad);border-color:var(--bad);color:#fff}
+
+  /* 정적 분석 점수 */
+  .scorecard{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:12px;border-left:5px solid var(--accent)}
+  .sc-head{display:flex;align-items:center;gap:14px}
+  .sc-title{flex:1}
+  .sc-title h3{margin:0;font-size:15px;font-weight:600}
+  .sc-sub{color:var(--muted);font-size:11px;margin-top:2px}
+  .sc-score{font-size:30px;font-weight:700;line-height:1;color:var(--accent)}
+  .sc-score span{font-size:13px;font-weight:500;color:var(--muted);margin-left:2px}
+  .sc-basis{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px}
+  .sc-formula{font-size:12px;margin-bottom:6px}
+  .sc-formula b{color:var(--text)}
+  .sc-basis ul{margin:4px 0;padding-left:18px;font-size:11px;line-height:1.7;color:var(--text)}
+  .sc-note{font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.6}
+  .batchbar{height:8px;background:#0b1220;border-radius:4px;overflow:hidden}
+  .batchbar-fill{height:100%;background:var(--accent);transition:width .3s}
+
+  /* 프로그램별 점수 개요 (프로그램 미선택 시) */
+  .score-overview{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:12px}
+  .so-head{display:flex;align-items:baseline;gap:10px}
+  .so-head h3{margin:0;font-size:15px;font-weight:600}
+  .so-hint{font-size:11px;color:var(--muted)}
+  .so-note{font-size:11px;color:var(--muted);margin:6px 0 10px;line-height:1.6}
+  .so-list{display:flex;flex-direction:column;gap:6px}
+  .so-row{display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:#0b1220;transition:border-color .15s,background .15s}
+  .so-row:hover{border-color:var(--accent);background:#10192e}
+  .so-score{flex:0 0 auto;min-width:52px;text-align:center;font-size:20px;font-weight:700;line-height:1;border-radius:6px;padding:6px 4px}
+  .so-score small{font-size:10px;font-weight:500;opacity:.75;margin-left:1px}
+  .so-score.sb-low{background:rgba(239,68,68,.16);color:#fca5a5}
+  .so-score.sb-mid{background:rgba(245,158,11,.16);color:#fbbf24}
+  .so-score.sb-high{background:rgba(34,197,94,.16);color:#86efac}
+  .so-main{flex:1;min-width:0}
+  .so-name{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .so-badges{margin-top:3px;display:flex;gap:5px;flex-wrap:wrap}
+  .back-btn{display:inline-flex;align-items:center;gap:4px;margin:0 0 8px;padding:4px 10px;font-size:12px;color:var(--muted);background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:color .15s,border-color .15s}
+  .back-btn:hover{color:var(--text);border-color:var(--accent)}
+
+  /* AI 종합 분석 panel */
+  .ai-summary{margin-top:12px;padding:14px 16px;border-radius:6px;background:#0b1220;border-left:4px solid #a78bfa}
+  .ai-summary .head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .ai-summary h4{margin:0;font-size:13px;color:#c4b5fd;font-weight:600}
+  .grade-chip{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600}
+  .grade-STATIC_HEALTHY{background:rgba(34,197,94,.18);color:#86efac}
+  .grade-SOME_CONCERNS{background:rgba(245,158,11,.18);color:#fbbf24}
+  .grade-NEEDS_REVIEW{background:rgba(239,68,68,.18);color:#fca5a5}
+  .ai-summary .narrative{margin:8px 0;font-size:12px;line-height:1.7;color:var(--text)}
+  .ai-summary .twocol{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0}
+  .ai-summary .col h5{margin:0 0 4px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:.4px}
+  .ai-summary .col.strengths h5{color:#86efac}
+  .ai-summary .col.concerns h5{color:#fca5a5}
+  .ai-summary ul{margin:4px 0;padding-left:18px;font-size:11px;line-height:1.6}
+  .ai-summary .hotspot{background:#1a2438;border-radius:5px;padding:8px 10px;margin:6px 0;border-left:3px solid #fbbf24}
+  .ai-summary .hotspot .area{font-weight:600;font-size:12px;color:#fbbf24}
+  .ai-summary .hotspot .reco{font-size:11px;color:var(--text);margin-top:4px;padding:4px 8px;background:rgba(168,85,247,.08);border-radius:4px}
+  .ai-summary .actions{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
+  .ai-summary .actions ol{margin:4px 0;padding-left:20px;font-size:12px;line-height:1.7;color:#a78bfa}
+  .ai-summary .meta{font-size:10px;color:var(--muted);margin-top:6px;text-align:right}
+  .ai-summary .disclaimer{font-size:10px;color:var(--muted);font-style:italic;margin-top:6px;padding:4px 8px;background:rgba(148,163,184,.08);border-radius:4px}
+  .ai-run-btn{background:#a78bfa;color:#0b1220;border:none;padding:5px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer}
+  .ai-run-btn:hover{filter:brightness(1.1)}
+  .ai-run-btn:disabled{opacity:.5;cursor:wait}
+  .sc-ai-tag{font-size:12px;font-weight:600;color:#c4b5fd;margin-left:8px}
+  .sc-aiactions{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+  .ai-cancel-btn{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:5px 11px;font-size:11px;cursor:pointer}
+  .ai-cancel-btn:hover:not(:disabled){color:var(--text);border-color:var(--muted)}
+  .ai-cancel-btn:disabled{opacity:.5;cursor:not-allowed}
+
   .class-meta{background:#0b1220;border:1px solid var(--border);border-radius:5px;padding:8px 12px;margin-bottom:8px;font-size:11px}
   .class-meta b{font-family:Consolas,monospace}
   .metric-mini{font-family:Consolas,monospace;font-size:11px;line-height:1.4;color:var(--muted);white-space:nowrap}
@@ -257,7 +332,7 @@
         <input type="file" accept=".yaml,.yml" @change="newMappingFile = $event.target.files[0]" />
       </div>
       <div>
-        <button @click="createProject" :disabled="!newProjectName || !newSpecFile">업로드 & 파싱</button>
+        <button @click="createProject()" :disabled="!newProjectName || !newSpecFile">업로드 & 파싱</button>
       </div>
       <div class="full msg" :class="createMsgKind" v-if="createMsg">{{ createMsg }}</div>
     </div>
@@ -321,6 +396,56 @@
             <div class="small">최종 실행 {{ semanticSummary.created_at }}</div>
           </div>
           <div v-if="semanticMsg" class="msg" :class="semanticMsgKind">{{ semanticMsg }}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>① AI 메서드 분석 <span style="color:#a78bfa">(전체 순차)</span></h2>
+        <div class="card">
+          <button @click="runAllProgramMethodAi"
+                  :disabled="aiBusy || !programs.length"
+                  :title="!programs.length ? '먼저 프로그램을 불러오세요' : '모든 프로그램의 메서드 단위 전체 AI 분석을 한 개씩 순차로 수행'"
+                  style="width:100%">
+            {{ allMethodAiBatch.running ? `메서드 분석 중… 프로그램 ${allMethodAiBatch.progDone}/${allMethodAiBatch.progTotal}` : '🤖 전체 프로그램 메서드 분석 (순차)' }}
+          </button>
+          <div v-if="allMethodAiBatch.running" style="margin-top:8px">
+            <div class="batchbar"><div class="batchbar-fill"
+                 :style="{width: (allMethodAiBatch.progTotal ? Math.round(allMethodAiBatch.progDone/allMethodAiBatch.progTotal*100) : 0)+'%'}"></div></div>
+            <div class="small" style="margin-top:4px">
+              프로그램 {{ allMethodAiBatch.progDone }}/{{ allMethodAiBatch.progTotal }}<template v-if="allMethodAiBatch.methodTotal"> · 메서드 {{ allMethodAiBatch.methodDone }}/{{ allMethodAiBatch.methodTotal }}</template> · 건너뜀 {{ allMethodAiBatch.skipped }} · 현재: {{ allMethodAiBatch.current }}
+            </div>
+            <button class="danger" style="margin-top:6px;width:100%" @click="cancelAllProgramMethodAi">중단</button>
+          </div>
+          <div v-else-if="allMethodAiBatch.progDone" class="small" style="margin-top:8px;color:var(--muted)">
+            ✓ 분석 {{ allMethodAiBatch.analyzed }}개 · 건너뜀 {{ allMethodAiBatch.skipped }}개 완료 · 점수에 AI 판단이 반영되었습니다.
+          </div>
+          <div class="msg" style="color:#fbbf24;margin-top:8px">
+            ⓘ 먼저 실행하세요. 프로그램별 '전체 AI 분석'(후보 메서드 순차 분석+적용)을 한 프로그램씩 대신 수행합니다. 후보가 없거나 이미 모두 적용된 프로그램은 건너뜁니다. 결과는 구현도 점수에 바로 반영되며, 프로그램 수에 따라 수십 분 걸릴 수 있습니다.
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>② AI 종합 분석 <span style="color:#a78bfa">(전체 순차)</span></h2>
+        <div class="card">
+          <button @click="runAllAiSummaries"
+                  :disabled="aiBusy || !programs.length"
+                  :title="!programs.length ? '먼저 프로그램을 불러오세요' : '모든 프로그램을 한 개씩 순차로 AI 분석'"
+                  style="width:100%">
+            {{ batchAi.running ? `분석 중… ${batchAi.done}/${batchAi.total}` : '🤖 전체 프로그램 순차 분석' }}
+          </button>
+          <div v-if="batchAi.running" style="margin-top:8px">
+            <div class="batchbar"><div class="batchbar-fill"
+                 :style="{width: (batchAi.total ? Math.round(batchAi.done/batchAi.total*100) : 0)+'%'}"></div></div>
+            <div class="small" style="margin-top:4px">진행 {{ batchAi.done }}/{{ batchAi.total }} · 현재: {{ batchAi.current }}</div>
+            <button class="danger" style="margin-top:6px;width:100%" @click="cancelBatchAi">중단</button>
+          </div>
+          <div v-else-if="batchAi.done" class="small" style="margin-top:8px;color:var(--muted)">
+            ✓ {{ batchAi.done }}개 완료<span v-if="batchAi.errors" style="color:var(--bad)"> · 실패 {{ batchAi.errors }}</span> · 프로그램을 클릭하면 결과가 표시됩니다.
+          </div>
+          <div class="msg" style="color:#fbbf24;margin-top:8px">
+            ⓘ ① 메서드 분석 후 실행하세요. GPU 동시 사용을 막기 위해 한 프로그램씩 순차 실행하며, 이미 분석된 프로그램은 건너뜁니다. 프로그램 수에 따라 수십 분 걸릴 수 있습니다.
+          </div>
         </div>
       </div>
 
@@ -519,12 +644,34 @@
                style="margin-left:6px;font-size:11px" title="전체 목록 CSV 다운로드">📥</a>
           </div>
         </div>
-        <div class="empty">왼쪽 목록에서 프로그램을 선택하세요.</div>
+        <div class="score-overview">
+          <div class="so-head">
+            <h3>프로그램별 점수 (낮은 순)</h3>
+            <span class="so-hint" v-if="programScoresLoading">점수 계산 중…</span>
+          </div>
+          <div class="so-note">점수가 낮을수록 미구현·의심 비중이 큽니다. 행을 클릭하면 상세로 이동합니다.</div>
+          <div class="so-list">
+            <div class="so-row" v-for="p in programOverview" :key="p.program_id"
+                 @click="selectProgram(p.program_id)">
+              <span class="so-score" :class="scoreBucket(p.score)">{{ p.score }}<small>점</small></span>
+              <div class="so-main">
+                <div class="so-name">{{ p.program_name || '(이름 없음)' }}</div>
+                <div class="so-badges">
+                  <span class="badge b-O" v-if="p.O">O {{ p.O }}</span>
+                  <span class="badge b-PARTIAL" v-if="p.P">P {{ p.P }}</span>
+                  <span class="badge b-X" v-if="p.X">X {{ p.X }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="!programOverview.length" class="empty" style="padding:14px">표시할 프로그램이 없습니다</div>
+          </div>
+        </div>
       </div>
 
       <div v-else>
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px">
           <div>
+            <button class="back-btn" @click="deselectProgram">← 프로그램 목록</button>
             <h2 style="margin:0 0 4px;font-size:18px">{{ selectedProgram.program_name }}</h2>
             <div style="color:var(--muted);font-size:12px">
               <span class="pill">{{ selectedProgram.program_id }}</span>
@@ -533,21 +680,52 @@
               <span class="pill" v-if="selectedProgram.menu_url">🔗 {{ selectedProgram.menu_url }}</span>
             </div>
           </div>
-          <button @click="onAiReviewClick"
-                  disabled
-                  title="추후 구현 예정"
-                  style="white-space:nowrap;padding:8px 14px;font-size:12px;opacity:.55;cursor:not-allowed">
-            🤖 AI 분석
-          </button>
+        </div>
+
+        <!-- ============ 정적 분석 점수 ============ -->
+        <div v-if="programScore" class="scorecard">
+          <div class="sc-head">
+            <div class="sc-title">
+              <h3>정적 분석 점수</h3>
+            </div>
+            <div class="sc-score">{{ programScore.score }}<span>점</span><span v-if="aiIncluded" class="sc-ai-tag">(AI판단 포함)</span></div>
+          </div>
+          <div class="sc-basis">
+            <div class="sc-aiactions">
+              <button class="ai-run-btn" :disabled="aiBusy"
+                      @click="runProgramMethodAi"
+                      title="정적분석으로 확정 못한 메서드(알 수 없음·의심)를 한 건씩 순차로 AI 분석하고 결과를 점수에 자동 반영합니다.">
+                {{ methodAiBatch.running ? `🤖 AI 분석 중… ${methodAiBatch.done}/${methodAiBatch.total}` : '🤖 전체 AI 분석' }}
+              </button>
+              <button v-if="aiIncluded" class="ai-cancel-btn" :disabled="methodAiBatch.running"
+                      @click="cancelProgramMethodAi"
+                      title="적용한 AI 판정을 모두 해제하고 정적분석 결과만으로 되돌립니다.">
+                AI 분석 취소
+              </button>
+            </div>
+            <div class="batchbar" v-if="methodAiBatch.running" style="margin:6px 0">
+              <div class="batchbar-fill" :style="{width: (methodAiBatch.total ? (methodAiBatch.done/methodAiBatch.total*100) : 0) + '%'}"></div>
+            </div>
+            <div class="sc-note">이 점수는 코드에 존재하는 산출물·메서드의 정적 근거<template v-if="aiIncluded">와 AI분석을 포함합니다.</template><template v-else>만 반영합니다.</template></div>
+          </div>
         </div>
 
         <!-- ============ 프로그램 요약 카드 ============ -->
         <div v-if="programSummary" class="sumcard">
-          <h3>프로그램 요약</h3>
-          <div class="sub">
-            {{ programSummary.totals.modules }} 모듈 ·
-            {{ programSummary.totals.files }} 파일 ·
-            {{ programSummary.totals.methods }} 메서드
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div>
+              <h3>프로그램 요약</h3>
+              <div class="sub">
+                {{ programSummary.totals.modules }} 모듈 ·
+                {{ programSummary.totals.files }} 파일 ·
+                {{ programSummary.totals.methods }} 메서드
+              </div>
+            </div>
+            <button class="ai-run-btn" :disabled="aiBusy"
+                    @click="runAiSummary('program')"
+                    :title="aiBusy ? '다른 AI 분석 진행 중' : '이 프로그램에 한정된 AI 종합 의견 (약 30~60초)'">
+              {{ aiSummaryLoading ? '⏳ 분석 중…' : (programAiSummary ? '🤖 다시 분석' : '🤖 AI 종합 분석') }}
+            </button>
           </div>
 
           <div class="sumrow">
@@ -613,6 +791,50 @@
               <span v-if="programSummary.spec_issues.MODULE_MISSING" class="sumchip suspect">모듈 누락 <b>{{ programSummary.spec_issues.MODULE_MISSING }}</b></span>
             </div>
           </div>
+
+          <!-- 프로그램 AI 종합 분석 결과 -->
+          <div v-if="programAiSummary" class="ai-summary">
+            <div v-if="programAiSummary.error" style="color:var(--bad);font-size:12px">
+              ✗ AI 종합 분석 실패: {{ programAiSummary.error }}
+            </div>
+            <div v-else>
+              <div class="head">
+                <h4>🤖 AI 종합 분석 (프로그램 단위)</h4>
+                <span class="grade-chip" :class="'grade-' + programAiSummary.overall_grade">
+                  {{ programAiSummary.overall_grade }}
+                </span>
+              </div>
+              <div class="narrative">{{ programAiSummary.narrative }}</div>
+              <div class="twocol">
+                <div class="col strengths" v-if="(programAiSummary.strengths||[]).length">
+                  <h5>✓ 강점</h5>
+                  <ul><li v-for="s in programAiSummary.strengths" :key="s">{{ s }}</li></ul>
+                </div>
+                <div class="col concerns" v-if="(programAiSummary.concerns||[]).length">
+                  <h5>⚠ 검토 권고</h5>
+                  <ul><li v-for="c in programAiSummary.concerns" :key="c">{{ c }}</li></ul>
+                </div>
+              </div>
+              <div v-if="(programAiSummary.hotspots||[]).length" style="margin-top:10px">
+                <h5 style="font-size:11px;text-transform:uppercase;color:var(--muted);margin:0 0 4px">🔍 검토 후보</h5>
+                <div v-for="h in programAiSummary.hotspots" :key="h.area" class="hotspot">
+                  <div class="area">{{ h.area }}</div>
+                  <ul style="margin:4px 0 6px"><li v-for="it in h.items" :key="it">{{ it }}</li></ul>
+                  <div v-if="h.recommendation" class="reco">💡 {{ h.recommendation }}</div>
+                </div>
+              </div>
+              <div v-if="(programAiSummary.next_actions||[]).length" class="actions">
+                <h5 style="font-size:11px;text-transform:uppercase;color:var(--muted);margin:0">우선 액션</h5>
+                <ol><li v-for="a in programAiSummary.next_actions" :key="a">{{ a }}</li></ol>
+              </div>
+              <div class="disclaimer">
+                ⓘ AI 가 본문을 직접 보지 못한 상태에서 작성한 의견입니다. 메서드 인용은 검토 후보로만 보고, 단정 결론은 코드 확인 후 내려주세요.
+              </div>
+              <div class="meta">
+                {{ programAiSummary.model }} · {{ (programAiSummary.duration_ms/1000).toFixed(1) }}s
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 요약 뷰 ↔ 모듈 상세 뷰 전환 버튼 -->
@@ -637,7 +859,8 @@
           <thead>
             <tr>
               <th>kind</th><th>package / 위치</th><th>모듈명</th>
-              <th>설명</th><th>dev</th><th>매칭</th><th>파일</th><th>AST</th>
+              <th>설명</th><th>dev</th><th>매칭</th><th>파일</th>
+              <th title="해당 파일 메서드들의 sloc 합계 · 메서드 수 (분석 클릭 없이 미리 집계)">규모</th><th>AST</th>
             </tr>
           </thead>
           <tbody>
@@ -657,6 +880,13 @@
                   <div style="font-size:10px;color:var(--muted);margin-top:2px" :title="r.match_strategy || ''">{{ strategyLabel(r.match_strategy) }}</div>
                 </td>
                 <td style="font-family:Consolas,monospace;font-size:11px;max-width:240px;word-break:break-all">{{ r.rel_path || '-' }}</td>
+                <td style="font-size:11px;white-space:nowrap">
+                  <template v-if="r.sloc_total != null">
+                    <span title="메서드 본문 sloc 합 (= 메서드별 sloc 배지 합, 공백·주석 제외)">sloc=<b>{{ r.sloc_total }}</b></span>
+                    <span class="small" style="color:var(--muted);margin-left:6px" title="메서드(함수) 수">· {{ r.method_count }}개</span>
+                  </template>
+                  <span v-else class="small" style="color:var(--muted)">-</span>
+                </td>
                 <td>
                   <button v-if="r.status==='O' || r.status==='PARTIAL' || issuesByRow[r.id]"
                           @click="toggleAst(r.id)"
@@ -666,7 +896,7 @@
                 </td>
               </tr>
               <tr v-if="astByRow[r.id]" class="ast-expansion">
-                <td :colspan="8" style="padding:0;background:#0b1220">
+                <td :colspan="9" style="padding:0;background:#0b1220">
                   <div class="ast-panel">
 
                     <!-- ====== Inline spec-issue explanation (if any) ====== -->
@@ -950,7 +1180,7 @@
                                         <span class="small ev-weak">⚠ 검증 필요</span>
                                       </template>
                                       <button class="llm-cand"
-                                              :disabled="isLlmLoading(r.id, getSem(r.id, fn).fqsig) || anyLlmInFlight"
+                                              :disabled="isLlmLoading(r.id, getSem(r.id, fn).fqsig) || aiBusy"
                                               @click="runLlmFor(r.id, getSem(r.id, fn).fqsig)"
                                               :title="anyLlmInFlight && !isLlmLoading(r.id, getSem(r.id, fn).fqsig) ? '다른 AI 분석 진행 중 — 끝나면 다시 클릭' : 'qwen2.5-coder:7b 로컬 호출 (약 10~20초)'">
                                         {{ isLlmLoading(r.id, getSem(r.id, fn).fqsig) ? '⏳ AI 분석 중…' :
@@ -977,6 +1207,10 @@
                                       </div>
                                       <div v-else>
                                         <div class="reasoning">{{ llmResultFor(r.id, fn).reasoning }}</div>
+                                        <div v-if="llmResultFor(r.id, fn).evidence_quote" class="evidence"
+                                             title="LLM 이 판정 근거로 지목한 본문 코드 — 실제 코드와 대조해 판정 신뢰도를 직접 확인하세요">
+                                          <span class="ev-label">근거</span><code>{{ llmResultFor(r.id, fn).evidence_quote }}</code>
+                                        </div>
                                         <div v-if="llmResultFor(r.id, fn).suggested_target_intent" class="intent">
                                           💡 추정 역할: {{ llmResultFor(r.id, fn).suggested_target_intent }}
                                         </div>
@@ -1092,7 +1326,10 @@ async function api(method, url, body, isForm){
   if (!res.ok) {
     let msg = res.statusText;
     try { const j = await res.json(); msg = j.detail || JSON.stringify(j); } catch(_) {}
-    throw new Error(`HTTP ${res.status}: ${msg}`);
+    const err = new Error(`HTTP ${res.status}: ${msg}`);
+    err.status = res.status;
+    err.detail = msg;
+    throw err;
   }
   return res.json();
 }
@@ -1108,13 +1345,10 @@ createApp({
     const astByRow = ref({});
     const semByRow = ref({});        // rowId -> {found, class, methods, implementations} | null
 
-    // AI 분석 — UI placeholder. 실행 로직은 아직 정해지지 않음.
-    function onAiReviewClick(){ /* TODO: 추후 구현 */ }
-
     const SHAPE_LABEL_KR = {
       'empty':            '빈 본문',
       'multi_statement':  '여러 줄',
-      'delegation':       '위임만',
+      'delegation':       '위임',
       'accessor':         '값 반환',
       'stub_throw':       '미구현 예외',
       'single_throw':     '예외 한 줄',
@@ -1144,6 +1378,82 @@ createApp({
     // summary aggregates
     const projectSummary = ref(null);     // 프로젝트 전체 요약
     const programSummary = ref(null);     // 선택된 프로그램 요약
+
+    // program별 점수 입력값(메서드 effective 집계). program_id -> {ok,suspect,unknown}
+    const programScores = ref({});
+    const programScoresLoading = ref(false);
+
+    // 정적 분석만으로 산출하는 결정론 점수 (동일 입력 → 항상 동일 결과)
+    // 완성도 = 골격 충족(coverage) × 내용 충족(content)
+    //  - coverage: 산출문서가 가리키는 소스가 실제 코드에 일치하는 비율 (못 찾으면 0, 부분 0.5)
+    //  - content : 존재하는 메서드 본문이 실질 로직을 갖춘 비율 (정상 1, 의심 0.5, 알수없음 0)
+    // 선택 프로그램·개요 리스트가 동일 공식을 쓰도록 한 곳에서 계산.
+    function computeScore(O, P, X, ok, suspect, unknown){
+      const mapTot = O + P + X;
+      const coverageR = mapTot ? (O + 0.5 * P) / mapTot : 0;
+      const mTot = ok + suspect + unknown;
+      const contentR = mTot ? (ok + 0.5 * suspect) / mTot : 1;
+      const score = Math.round(coverageR * contentR * 100);
+      return {
+        score,
+        coverage: Math.round(coverageR * 100),
+        content: Math.round(contentR * 100),
+        O, P, X, mapTot, ok, suspect, unknown, mTot,
+      };
+    }
+
+    const programScore = computed(() => {
+      const s = programSummary.value;
+      if (!s) return null;
+      const ms = s.mapping_status || {};
+      const es = s.method_status_effective || {};
+      return computeScore(ms.O || 0, ms.PARTIAL || 0, ms.X || 0,
+                          es.ok || 0, es.suspect || 0, es.unknown || 0);
+    });
+
+    // 프로그램 미선택 화면: 전 프로그램을 점수 낮은 순으로 (어디가 미흡한지 한눈에)
+    const programOverview = computed(() => {
+      const sc = programScores.value || {};
+      return programs.value.map(p => {
+        const m = sc[p.program_id] || {};
+        const r = computeScore(p.found || 0, p.partial || 0, p.missing || 0,
+                               m.ok || 0, m.suspect || 0, m.unknown || 0);
+        return {
+          program_id: p.program_id,
+          program_name: p.program_name,
+          score: r.score,
+          O: p.found || 0, P: p.partial || 0, X: p.missing || 0,
+        };
+      }).sort((a, b) => a.score - b.score ||
+              (a.program_name || '').localeCompare(b.program_name || ''));
+    });
+
+    function scoreBucket(score){
+      if (score < 50) return 'sb-low';
+      if (score < 80) return 'sb-mid';
+      return 'sb-high';
+    }
+
+    // AI 종합 분석 (프로그램/프로젝트 단위)
+    const projectAiSummary = ref(null);
+    const programAiSummary = ref(null);
+    const aiSummaryLoading = ref(false);
+
+    // 전체 프로그램 순차 AI 분석 (GPU 동시 사용 방지를 위해 한 건씩)
+    const programAiCache = ref({});   // program_id -> AI 분석 결과 (세션 메모리)
+    const batchAi = ref({ running: false, done: 0, total: 0, current: '', errors: 0 });
+
+    // 현재 프로그램의 메서드 단위 AI 분석 일괄 실행 상태 (한 건씩 순차)
+    const methodAiBatch = ref({ running: false, done: 0, total: 0, current: '' });
+    // 전체 프로그램 메서드 분석(순차) 진행 상태
+    const allMethodAiBatch = ref({ running: false, progDone: 0, progTotal: 0,
+      current: '', methodDone: 0, methodTotal: 0, skipped: 0, analyzed: 0 });
+    // 점수에 AI 판정이 반영돼 있는지 — 점수카드 라벨/문구 전환에 사용
+    const aiIncluded = computed(() => {
+      const s = programSummary.value;
+      return !!(s && s.llm && (s.llm.applied || 0) > 0);
+    });
+
     const showModuleDetail = ref(false);  // 임원/PM 뷰(false=요약만) ↔ 개발자/PL 뷰(true=모듈 상세 포함)
     const unknownTriage = ref(null);      // UNKNOWN 계층 점검 데이터
     const showUnknownPanel = ref(false);  // 미분류 점검 목록 펼침 여부
@@ -1285,7 +1595,7 @@ createApp({
     }
 
     async function loadProject(){
-      if (!currentProjectId.value){ programs.value = []; bundles.value = []; return; }
+      if (!currentProjectId.value){ programs.value = []; bundles.value = []; programScores.value = {}; return; }
       programs.value = await api('GET', `/api/projects/${currentProjectId.value}/programs`);
       bundles.value = await api('GET', `/api/projects/${currentProjectId.value}/sources`);
       selectedProgramId.value = null;
@@ -1293,9 +1603,21 @@ createApp({
       semByRow.value = {};
       chainByRow.value = {};
       currentPage.value = 1;
+      loadProgramScores();   // 개요 점수 (비동기, 화면 블로킹 X)
       await loadSemanticSummary();
       await loadIssueSummary();
       await loadProjectSummary();
+    }
+
+    async function loadProgramScores(){
+      programScores.value = {};
+      programScoresLoading.value = true;
+      try {
+        programScores.value = await api('GET', `/api/projects/${currentProjectId.value}/program-scores`);
+      } catch(_) {
+      } finally {
+        programScoresLoading.value = false;
+      }
     }
 
     async function loadIssueSummary(){
@@ -1350,6 +1672,67 @@ createApp({
           `/api/projects/${currentProjectId.value}/summary?program_id=${encodeURIComponent(programId)}`);
       } catch(_) {}
     }
+
+    /** AI 종합 분석 호출 (~30-90초). scope='project' or 'program'.
+     *  결과는 세션 메모리(programAiCache)에 저장 — 프로그램 클릭 시 표시 */
+    async function runAiSummary(scope){
+      if (aiBusy.value) return;
+      aiSummaryLoading.value = true;
+      try {
+        const url = scope === 'program'
+          ? `/api/projects/${currentProjectId.value}/summary/ai?program_id=${encodeURIComponent(selectedProgramId.value)}`
+          : `/api/projects/${currentProjectId.value}/summary/ai`;
+        const r = await api('POST', url);
+        if (scope === 'program') {
+          programAiSummary.value = r;
+          programAiCache.value[selectedProgramId.value] = r;
+        } else projectAiSummary.value = r;
+      } catch(e) {
+        const err = { error: e.message };
+        if (scope === 'program') {
+          programAiSummary.value = err;
+          programAiCache.value[selectedProgramId.value] = err;
+        } else projectAiSummary.value = err;
+      } finally {
+        aiSummaryLoading.value = false;
+      }
+    }
+
+    /** 모든 프로그램을 한 건씩 순차로 AI 분석. 이미 성공한 항목은 건너뜀.
+     *  결과는 programAiCache 에 저장 — 프로그램 클릭 시 표시. */
+    async function runAllAiSummaries(){
+      if (aiBusy.value) return;
+      const todo = programs.value.filter(p => {
+        const c = programAiCache.value[p.program_id];
+        return !c || c.error;   // 미분석 또는 이전 실패만
+      });
+      if (!todo.length) return;
+      batchAi.value = { running: true, done: 0, total: todo.length, current: '', errors: 0 };
+      for (const p of todo){
+        if (!batchAi.value.running) break;   // 중단 시 탈출
+        batchAi.value.current = p.program_name || p.program_id;
+        let r;
+        try {
+          r = await api('POST',
+            `/api/projects/${currentProjectId.value}/summary/ai?program_id=${encodeURIComponent(p.program_id)}`);
+        } catch(e) {
+          r = { error: e.message };
+        }
+        programAiCache.value[p.program_id] = r;
+        if (r && r.error) batchAi.value.errors++;
+        if (selectedProgramId.value === p.program_id) programAiSummary.value = r;
+        batchAi.value.done++;
+      }
+      batchAi.value.running = false;
+      batchAi.value.current = '';
+    }
+
+    function cancelBatchAi(){ batchAi.value.running = false; }
+
+    // 프로그램 바뀌면 캐시에 있으면 복원, 없으면 초기화
+    watch(selectedProgramId, (pid) => {
+      programAiSummary.value = pid ? (programAiCache.value[pid] || null) : null;
+    });
 
     // Re-load program summary whenever selection changes
     watch(selectedProgramId, (pid) => {
@@ -1832,7 +2215,7 @@ createApp({
     };
 
     const LLM_VERDICT_LABEL = {
-      REAL_DELEGATION : '실제 위임',
+      REAL_DELEGATION : '위임',
       REAL_LOGIC      : '실제 로직',
       STUB            : '미구현 stub',
       NAME_MISMATCH   : '이름·본문 불일치',
@@ -1859,6 +2242,15 @@ createApp({
      *  matches our operating rule (LLM 작업은 병렬 금지). */
     const anyLlmInFlight = computed(() =>
       Object.values(llmLoading.value).some(Boolean)
+    );
+
+    /** GPU를 점유하는 AI 작업이 하나라도 진행 중인가? (8GB VRAM — 동시에 하나만 실행) */
+    const aiBusy = computed(() =>
+      methodAiBatch.value.running ||
+      allMethodAiBatch.value.running ||
+      anyLlmInFlight.value ||
+      aiSummaryLoading.value ||
+      batchAi.value.running
     );
 
     async function hydrateLlmForClass(rowId, fqcn){
@@ -1950,6 +2342,135 @@ createApp({
       return !!llmDismissed.value[`${rowId}|${fqsig}`];
     }
 
+    /** 현재 프로그램의 모든 .java 모듈에 대해 AST·semantic·LLM 캐시를 적재한다.
+     *  일괄 분석/취소가 펼쳐지지 않은 모듈까지 포함하려면 먼저 호출해야 한다. */
+    async function ensureProgramRowsHydrated(){
+      const prog = selectedProgram.value;
+      if (!prog) return;
+      for (const row of prog.rows){
+        if (!row.rel_path || !row.rel_path.endsWith('.java')) continue;
+        if (!astByRow.value[row.id]) await loadAst(row.id);
+        if (semByRow.value[row.id] === undefined) await loadSemanticForRow(row.id);
+      }
+    }
+
+    /** 현재 프로그램에서 'AI 분석' 후보(정적으로 확정 못한 메서드) 목록을 모은다. */
+    function collectLlmCandidates(){
+      const prog = selectedProgram.value;
+      const out = [];
+      if (!prog) return out;
+      for (const row of prog.rows){
+        const ast = astByRow.value[row.id];
+        if (!ast || !ast.ast || !ast.ast.functions) continue;
+        for (const fn of ast.ast.functions){
+          const sem = getSem(row.id, fn);
+          if (!sem) continue;
+          if (!isLLMCandidate(fn, sem)) continue;
+          out.push({ rowId: row.id, fqsig: sem.fqsig, name: fn.name });
+        }
+      }
+      return out;
+    }
+
+    /** 🤖 전체 AI 분석 — 후보 메서드를 한 건씩 순차로 분석하고 결과를 자동 적용,
+     *  끝나면 점수 요약을 새로고침한다. (8GB VRAM — 병렬 금지, 반드시 순차) */
+    async function runProgramMethodAi(){
+      if (aiBusy.value) return;
+      const prog = selectedProgram.value;
+      if (!prog) return;
+      methodAiBatch.value = { running: true, done: 0, total: 0, current: '준비 중…' };
+      try {
+        await ensureProgramRowsHydrated();
+        // 캐시 재사용 금지 — 클릭할 때마다 모든 후보를 LLM 으로 새로 분석한다.
+        const tasks = collectLlmCandidates();
+        methodAiBatch.value.total = tasks.length;
+        for (const t of tasks){
+          if (!methodAiBatch.value.running) break;   // 중단 시 탈출
+          methodAiBatch.value.current = t.name;
+          await runLlmFor(t.rowId, t.fqsig, true);   // force=true: 매번 LLM 새 호출
+          const res = (llmByRow.value[t.rowId] || {})[t.fqsig];
+          if (res && !res.error && res.verdict){
+            await applyLlm(t.rowId, t.fqsig);
+          }
+          methodAiBatch.value.done++;
+        }
+        await loadProgramSummary(selectedProgramId.value);
+      } finally {
+        methodAiBatch.value.running = false;
+        methodAiBatch.value.current = '';
+      }
+    }
+
+    /** AI 분석 취소 — 이 프로그램의 AI 결과 캐시를 영구 삭제하고 정적 결과로 되돌린다.
+     *  (단순 적용해제가 아니라 DB 캐시까지 지워, 다음 '전체 AI 분석'이 LLM 을 새로 호출한다.) */
+    async function cancelProgramMethodAi(){
+      if (methodAiBatch.value.running) return;
+      const prog = selectedProgram.value;
+      if (!prog) return;
+      methodAiBatch.value = { running: true, done: 0, total: 0, current: '초기화 중…' };
+      try {
+        // DB 캐시를 메모리로 끌어와(hydrate) 이 프로그램의 모든 fqsig 를 삭제 대상에 포함시킨다.
+        await ensureProgramRowsHydrated();
+        for (const row of prog.rows){
+          for (const fqsig of Object.keys(llmByRow.value[row.id] || {})){
+            await dismissLlm(row.id, fqsig);   // DELETE 캐시 + 메모리 제거 → 정적 결과로 복귀
+          }
+        }
+        await loadProgramSummary(selectedProgramId.value);
+      } finally {
+        methodAiBatch.value.running = false;
+        methodAiBatch.value.current = '';
+      }
+    }
+
+    /** 🤖 전체 프로그램 메서드 분석 (순차) — 모든 프로그램을 한 개씩 돌며
+     *  프로그램별 '전체 AI 분석'(후보 메서드 순차 분석+적용)을 대신 수행한다.
+     *  후보가 없거나 이미 모두 적용된 프로그램은 건너뛴다. (8GB VRAM — 병렬 금지) */
+    async function runAllProgramMethodAi(){
+      if (aiBusy.value) return;
+      const all = programs.value.slice();
+      if (!all.length) return;
+      allMethodAiBatch.value = { running: true, progDone: 0, progTotal: all.length,
+        current: '', methodDone: 0, methodTotal: 0, skipped: 0, analyzed: 0 };
+      try {
+        for (const p of all){
+          if (!allMethodAiBatch.value.running) break;
+          allMethodAiBatch.value.current = p.program_name || p.program_id;
+          allMethodAiBatch.value.methodDone = 0;
+          allMethodAiBatch.value.methodTotal = 0;
+          selectProgram(p.program_id);   // 후보수집·하이드레이션은 선택 프로그램 기준
+          await ensureProgramRowsHydrated();
+          const tasks = collectLlmCandidates().filter(t => {
+            const ex = (llmByRow.value[t.rowId] || {})[t.fqsig];
+            return !(ex && ex.applied);   // 이미 반영된 건 제외
+          });
+          if (!tasks.length){            // 후보 없음/이미 전부 적용 → 건너뜀
+            allMethodAiBatch.value.skipped++;
+            allMethodAiBatch.value.progDone++;
+            continue;
+          }
+          allMethodAiBatch.value.methodTotal = tasks.length;
+          for (const t of tasks){
+            if (!allMethodAiBatch.value.running) break;
+            await runLlmFor(t.rowId, t.fqsig, true);   // 캐시 재사용 금지 — 매번 LLM 새 호출
+            const res = (llmByRow.value[t.rowId] || {})[t.fqsig];
+            if (res && !res.error && res.verdict){
+              await applyLlm(t.rowId, t.fqsig);
+            }
+            allMethodAiBatch.value.methodDone++;
+          }
+          await loadProgramSummary(selectedProgramId.value);
+          allMethodAiBatch.value.analyzed++;
+          allMethodAiBatch.value.progDone++;
+        }
+      } finally {
+        allMethodAiBatch.value.running = false;
+        allMethodAiBatch.value.current = '';
+      }
+    }
+
+    function cancelAllProgramMethodAi(){ allMethodAiBatch.value.running = false; }
+
     /** Has the user accepted this LLM verdict as authoritative for the row? */
     function isLlmApplied(rowId, fn){
       const r = llmResultFor(rowId, fn);
@@ -1961,6 +2482,11 @@ createApp({
       const r = llmResultFor(rowId, fn);
       if (r && r.applied && r.verdict) {
         return LLM_VERDICT_TO_STATUS[r.verdict] || fn.status;
+      }
+      // 정적분석이 '정상(ok)' 으로 봤지만 'AI 분석' 버튼이 뜨는(= 정적으로 확정 불가)
+      // 메서드는 보수적으로 '알 수 없음' 으로 내린다. LLM 적용 결과가 있으면 위에서 이미 반영됨.
+      if (fn.status === 'ok' && isLLMCandidate(fn, getSem(rowId, fn))) {
+        return 'unknown';
       }
       return fn.status;
     }
@@ -1981,7 +2507,7 @@ createApp({
         case 'REAL_DELEGATION':
           if (hasEndpoint || layer === 'CONTROLLER') return '서비스로 위임';
           if (layer === 'SERVICE') return '타 메서드로 위임';
-          return '위임만';
+          return '위임';
         case 'REAL_LOGIC':
           // mirror static tiering thresholds (LOGIC_LIGHT/NORMAL/COMPLEX)
           if (sloc >= 40 || cc >= 8) return '구현됨 (복잡)';
@@ -2059,19 +2585,28 @@ createApp({
 
     // ---------- actions ----------
 
-    async function createProject(){
+    async function createProject(overwrite){
       try {
-        createMsg.value = '업로드 중…'; createMsgKind.value = '';
+        createMsg.value = overwrite ? '갱신 중…' : '업로드 중…'; createMsgKind.value = '';
         const fd = new FormData();
         fd.append('name', newProjectName.value);
         fd.append('spec_file', newSpecFile.value);
         if (newMappingFile.value) fd.append('mapping_yaml', newMappingFile.value);
+        if (overwrite) fd.append('overwrite', 'true');
         const res = await api('POST', '/api/projects', fd, true);
-        createMsg.value = `✓ ${res.program_count} programs, ${res.row_count} rows`;
+        const verb = res.reused ? '갱신' : '생성';
+        createMsg.value = `✓ ${verb} 완료 — ${res.program_count} programs, ${res.row_count} rows`;
         createMsgKind.value = 'ok';
         newProjectName.value = ''; newSpecFile.value = null; newMappingFile.value = null;
         await refreshProjects();
       } catch(e){
+        if (e.status === 409 && !overwrite) {
+          if (confirm('이미 동일한 이름의 프로젝트가 있습니다.\n기존 프로젝트를 갱신할까요?\n(적용한 AI 분석 결과는 보존됩니다)')) {
+            return createProject(true);
+          }
+          createMsg.value = '취소됨'; createMsgKind.value = '';
+          return;
+        }
         createMsg.value = '✗ ' + e.message; createMsgKind.value = 'err';
       }
     }
@@ -2116,6 +2651,11 @@ createApp({
 
     function selectProgram(pid){
       selectedProgramId.value = pid;
+      astByRow.value = {};
+    }
+
+    function deselectProgram(){
+      selectedProgramId.value = null;
       astByRow.value = {};
     }
 
@@ -2186,25 +2726,29 @@ createApp({
       sourceFiles, uploading, uploadMsg, uploadMsgKind,
       openProject, goHome, createProject, deleteProject,
       onSourceFiles, uploadSources, rematch,
-      selectProgram, loadAst, closeAst, toggleAst, statusMix,
+      selectProgram, deselectProgram, loadAst, closeAst, toggleAst, statusMix,
       runSemantic, loadChain, closeChain, shortSig,
       getSem, isLLMCandidate, evidenceCalls, staticBasis,
       llmByRow, llmLoading, llmDismissed, llmResultFor, isLlmLoading,
-      anyLlmInFlight,
+      anyLlmInFlight, aiBusy,
       runLlmFor, llmVerdictLabel, llmCandidateReason,
       applyLlm, unapplyLlm, dismissLlm, isLlmDismissed,
       isLlmApplied, effectiveStatus, effectiveStatusKr, effectiveLabel,
       isLombokClass, lombokHints, fileHasLombokOnly,
       kindLabel, kindDesc,
       detectSuffix, deriveLayer, layerCssClass, fqcnFromSig,
-      projectSummary, programSummary, showModuleDetail,
+      projectSummary, programSummary, programScore, showModuleDetail,
+      programScoresLoading, programOverview, scoreBucket,
+      projectAiSummary, programAiSummary, aiSummaryLoading, runAiSummary,
+      batchAi, runAllAiSummaries, cancelBatchAi,
+      methodAiBatch, aiIncluded, runProgramMethodAi, cancelProgramMethodAi,
+      allMethodAiBatch, runAllProgramMethodAi, cancelAllProgramMethodAi,
       unknownTriage, showUnknownPanel, unknownTagFilter, filteredUnknown, tagLabel,
       sumPct, sumBarTip, anyStub, sortedLayers,
       issueSummary, issuesByRow, copy, dedupeBy, selectCandidate,
       confirmMissing, undoManualMissing,
       statusLabel, strategyLabel, issueKindLabel,
       shapeLabel, semSloc,
-      onAiReviewClick,
     };
   }
 }).mount('#app');

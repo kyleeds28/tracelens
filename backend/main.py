@@ -1,6 +1,6 @@
+import hashlib
 import json
 import shutil
-import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -9,13 +9,14 @@ from fastapi.staticfiles import StaticFiles
 
 from ast_analyzer import analyze_file
 from db import get_conn, init_db, reset_project
-from matcher import match_program_row, status_from_strategy
+from matcher import match_program_row, status_from_strategy, auto_match_by_locality
 from sources import extract_archive, walk_files
 from spec import group_by_program, load_mapping, load_spec
 import java_semantic
 import spec_issues
 import unknown_triage
 import llm_analysis
+import llm_summary
 
 APP_ROOT = Path(__file__).parent
 DATA_DIR = APP_ROOT.parent / "data"
@@ -54,6 +55,13 @@ def _save_upload(upload: UploadFile, dest: Path) -> Path:
     return dest
 
 
+def _stable_project_id(name: str) -> str:
+    # 같은 프로젝트명을 다시 import 하면 동일 id 가 나오도록 결정론적으로 생성.
+    # (랜덤 uuid 대신 — 중복 import 로 project 가 여러 개 생기는 것을 방지)
+    key = " ".join(name.strip().lower().split())
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
+
+
 # ---------------- routes ----------------
 
 @app.post("/api/projects")
@@ -61,9 +69,26 @@ async def create_project(
     name: str = Form(...),
     spec_file: UploadFile = File(...),
     mapping_yaml: UploadFile | None = File(None),
+    overwrite: bool = Form(False),
 ):
-    project_id = uuid.uuid4().hex[:8]
+    project_id = _stable_project_id(name)
+    with get_conn() as c:
+        existing = c.execute(
+            "SELECT id, name FROM project WHERE id=?", (project_id,)
+        ).fetchone()
+    if existing and not overwrite:
+        raise HTTPException(
+            409,
+            f"이미 동일한 이름의 프로젝트가 있습니다: '{existing['name']}'. "
+            "갱신하려면 덮어쓰기를 확인하세요.",
+        )
+
     proj_dir = UPLOAD_DIR / project_id
+    if existing:
+        # 갱신(upsert): 파생 데이터만 비우고 적용된 AI 판정(llm_method_analysis)은 보존
+        reset_project(project_id)
+        shutil.rmtree(proj_dir, ignore_errors=True)
+
     xlsx_path = _save_upload(spec_file, proj_dir / spec_file.filename)
     if mapping_yaml is not None:
         _save_upload(mapping_yaml, proj_dir / "mapping.yaml")
@@ -106,6 +131,7 @@ async def create_project(
     return {
         "project_id": project_id,
         "name": name,
+        "reused": bool(existing),
         "row_count": len(rows),
         "program_count": len({r.get("program_id") for r in rows if r.get("program_id")}),
     }
@@ -139,9 +165,11 @@ def list_programs(project_id: str):
     with get_conn() as c:
         rows = c.execute(
             """SELECT pr.*,
+                      m.id AS mapping_id,
                       m.status, m.match_strategy, m.source_file_id,
-                      m.manual_override,
-                      sf.rel_path, sf.lang
+                      m.manual_override, m.code_sloc_sum, m.method_cnt,
+                      m.file_code_lines,
+                      sf.rel_path, sf.lang, sf.fqcn, sf.abs_path, sf.ext
                FROM program_row pr
                LEFT JOIN mapping m ON m.program_row_id = pr.id
                LEFT JOIN source_file sf ON sf.id = m.source_file_id
@@ -149,7 +177,43 @@ def list_programs(project_id: str):
                ORDER BY pr.row_idx""",
             (project_id,),
         ).fetchall()
-    flat = [dict(r) for r in rows]
+        flat = [dict(r) for r in rows]
+
+        # Module-level source size = sum of per-method sloc badges (code lines,
+        # blank/comment excluded) from analyze_file — the SAME metric shown in
+        # the AST panel. Computed once per file and cached on the mapping row.
+        updates: list[tuple] = []
+        for r in flat:
+            if r.get("code_sloc_sum") is not None and r.get("file_code_lines") is not None:
+                r["sloc_total"] = r["code_sloc_sum"]
+                r["method_count"] = r["method_cnt"]
+                r["code_lines_total"] = r["file_code_lines"]
+                continue
+            r["sloc_total"] = None
+            r["method_count"] = None
+            r["code_lines_total"] = None
+            if not r.get("source_file_id") or not r.get("abs_path"):
+                continue
+            try:
+                ast = analyze_file(r["abs_path"], r["ext"] or "")
+                fns = ast.get("functions") or []
+            except Exception:
+                continue
+            if not fns and ast.get("error"):
+                continue
+            sloc_sum = sum(int(f.get("sloc") or 0) for f in fns)
+            cnt = len(fns)
+            code_lines = int((ast.get("file_metrics") or {}).get("code_lines") or 0)
+            r["sloc_total"] = sloc_sum
+            r["method_count"] = cnt
+            r["code_lines_total"] = code_lines
+            updates.append((sloc_sum, cnt, code_lines, r["mapping_id"]))
+
+        for sloc_sum, cnt, code_lines, mid in updates:
+            c.execute(
+                "UPDATE mapping SET code_sloc_sum=?, method_cnt=?, file_code_lines=? WHERE id=?",
+                (sloc_sum, cnt, code_lines, mid),
+            )
 
     # group by program_id
     groups: dict[str, dict] = {}
@@ -273,7 +337,30 @@ def run_mapping(project_id: str):
                     status, strategy,
                 ),
             )
-    return {"stats": stats, "matched_files": len(files), "manual_preserved": len(manual)}
+
+        # ---- Tier A: 구조 신호 기반 자동 확정 (형제 패키지 수렴 + 역할 유일) ----
+        # 사람 판단 없이 '엄격 유일' 인 X(api) 행만 O 로 승격. 나머지는 그대로 두어
+        # 기존 유사후보 제안 흐름을 유지한다. 결정론적이라 재매칭마다 재계산됨.
+        mapping_by_row = {
+            m["program_row_id"]: dict(m) for m in c.execute(
+                """SELECT program_row_id, source_file_id, status, manual_override
+                   FROM mapping WHERE project_id=?""",
+                (project_id,),
+            ).fetchall()
+        }
+        auto = auto_match_by_locality(rows, mapping_by_row, files)
+        for a in auto:
+            c.execute(
+                """UPDATE mapping SET source_file_id=?, status='O', match_strategy=?
+                   WHERE project_id=? AND program_row_id=?""",
+                (a["source_file_id"], a["strategy"], project_id, a["row_id"]),
+            )
+            stats["X"] = max(0, stats.get("X", 0) - 1)
+            stats["O"] = stats.get("O", 0) + 1
+    return {
+        "stats": stats, "matched_files": len(files),
+        "manual_preserved": len(manual), "auto_locality": len(auto),
+    }
 
 
 @app.post("/api/projects/{project_id}/mapping/{row_id}/select")
@@ -447,9 +534,12 @@ def get_row_ast(project_id: str, row_id: int):
             return {"status": m["status"], "ast": json.loads(m["ast_json"]), "cached": True}
 
         ast = analyze_file(m["abs_path"], m["ext"])
+        fns = ast.get("functions") or []
+        sloc_sum = sum(int(f.get("sloc") or 0) for f in fns)
+        code_lines = int((ast.get("file_metrics") or {}).get("code_lines") or 0)
         c.execute(
-            "UPDATE mapping SET ast_json=? WHERE id=?",
-            (json.dumps(ast, ensure_ascii=False), m["id"]),
+            "UPDATE mapping SET ast_json=?, code_sloc_sum=?, method_cnt=?, file_code_lines=? WHERE id=?",
+            (json.dumps(ast, ensure_ascii=False), sloc_sum, len(fns), code_lines, m["id"]),
         )
     return {"status": m["status"], "ast": ast, "cached": False}
 
@@ -645,7 +735,7 @@ def llm_by_class(project_id: str, fqcn: str):
     with get_conn() as c:
         rows = c.execute(
             """SELECT m.fqsig, l.verdict, l.confidence, l.reasoning,
-                      l.suggested_target_intent, l.concerns_json, l.duration_ms,
+                      l.suggested_target_intent, l.evidence_quote, l.concerns_json, l.duration_ms,
                       l.created_at, l.error, l.applied
                FROM java_method_semantic m
                LEFT JOIN llm_method_analysis l
@@ -670,6 +760,7 @@ def llm_by_class(project_id: str, fqcn: str):
             "verdict": r["verdict"], "confidence": conf,
             "reasoning": r["reasoning"],
             "suggested_target_intent": r["suggested_target_intent"],
+            "evidence_quote": r["evidence_quote"],
             "concerns": concerns, "duration_ms": r["duration_ms"],
             "created_at": r["created_at"], "error": r["error"],
             "applied": bool(r.get("applied")),
@@ -693,6 +784,146 @@ def spec_issues_summary(project_id: str):
     _get_project(project_id)
     d = spec_issues.detect(project_id)
     return {"total": d["total"], "by_kind": d["by_kind"]}
+
+
+@app.post("/api/projects/{project_id}/summary/ai")
+def project_or_program_summary_ai(project_id: str, program_id: str | None = None):
+    """정적 수치 요약 위에 narrative + hotspot 생성 (프로그램/프로젝트 단위).
+
+    - 정적 수치는 /summary 와 동일 (재계산 안 함, 동기화)
+    - narrative 는 임원/PM 용 한국어 종합 의견
+    - hotspot 은 검토 후보 (단정 아님)
+    - 메서드 인용 시 ClassName.method() 형식만
+    - 결과 캐시 안 함 — 매번 fresh inference"""
+    proj = _get_project(project_id)
+    summary = project_or_program_summary(project_id, program_id)
+    out = llm_summary.summarize(
+        project_id=project_id,
+        summary=summary,
+        project_name=proj.get("name", ""),
+        program_id=program_id,
+    )
+    return out
+
+
+# ---- per-method status classification (shared by summary + score endpoints) ----
+# body_shape (semantic) → status group via same rules as the verdict labels.
+_SHAPE_TO_STATUS = {
+    "empty": "suspect", "stub_throw": "suspect", "stub_literal": "suspect",
+    "stub_debug": "suspect",
+    "no_body": "ok", "abstract": "ok",
+    "delegation": "ok", "accessor": "ok",
+    "single_throw": "unknown", "single_return": "unknown",
+    "single_statement": "unknown", "empty_return": "unknown",
+    "multi_statement": "ok",
+}
+_SHAPE_TO_STUB = {
+    "empty": "STUB_EMPTY",
+    "stub_throw": "STUB_NOT_IMPL",
+    "stub_literal": "STUB_PLACEHOLDER",
+    "stub_debug": "STUB_DEBUG_ONLY",
+}
+_LLM_TO_STATUS = {
+    "REAL_DELEGATION": "ok", "REAL_LOGIC": "ok",
+    "STUB": "suspect", "NAME_MISMATCH": "suspect",
+    "MOVED_TO_SIBLING": "ok",     # dead-code 확인됨 — 정상 그룹
+    "UNCLEAR": "unknown",
+}
+
+
+def _is_unconfirmed_ok(shape, calls_json, delegation_target, sloc):
+    """정적 'ok' 이지만 호출을 하나도 resolve 못해 동작 확정 불가 → 보수적으로 unknown.
+
+    프런트 isLLMCandidate 의 zone 3·4 와 동일 기준.
+    """
+    if shape in ("no_body", "abstract"):
+        return False
+    try:
+        calls = json.loads(calls_json or "[]")
+    except (ValueError, TypeError):
+        calls = []
+    resolved = sum(1 for x in calls if isinstance(x, dict) and x.get("resolved"))
+    all_unresolved = len(calls) > 0 and resolved == 0
+    if shape in ("delegation", "accessor"):
+        if delegation_target:
+            return False
+        if all_unresolved:
+            return True
+    if all_unresolved and (sloc or 0) >= 3:
+        return True
+    return False
+
+
+def aggregate_methods(methods: list, llm_by_fqsig: dict) -> dict:
+    """메서드 목록 → 상태 집계(정적/effective/스텁/LLM/레이어).
+
+    summary 엔드포인트와 program-scores 배치가 동일한 분류 규칙을 쓰도록
+    per-method 판정을 한 곳에 모은다. methods 각 원소는 fqsig/layer/body_shape/
+    sloc/calls_json/delegation_target 를 가진 dict-like.
+    """
+    method_total = len(methods)
+    layer_count: dict[str, int] = {}
+    static_status = {"ok": 0, "suspect": 0, "unknown": 0}
+    effective_status = {"ok": 0, "suspect": 0, "unknown": 0}
+    stubs = {"STUB_EMPTY": 0, "STUB_NOT_IMPL": 0,
+             "STUB_PLACEHOLDER": 0, "STUB_DEBUG_ONLY": 0}
+    llm_verdict_dist: dict[str, int] = {}
+    llm_analyzed = 0
+    llm_applied = 0
+    llm_overrode_to_suspect = 0
+    llm_overrode_to_ok = 0
+    unconfirmed_unknown = 0
+
+    for m in methods:
+        m = dict(m)
+        layer = m.get("layer") or "UNKNOWN"
+        layer_count[layer] = layer_count.get(layer, 0) + 1
+
+        shape = m.get("body_shape") or ""
+        s_status = _SHAPE_TO_STATUS.get(shape, "unknown")
+        if s_status == "ok" and _is_unconfirmed_ok(
+            shape, m.get("calls_json"), m.get("delegation_target"), m.get("sloc")
+        ):
+            s_status = "unknown"
+            unconfirmed_unknown += 1
+        static_status[s_status] += 1
+
+        llm = llm_by_fqsig.get(m["fqsig"])
+        promoted_to_ok = (
+            llm and llm.get("applied") and llm.get("verdict")
+            and _LLM_TO_STATUS.get(llm["verdict"]) == "ok"
+        )
+
+        if shape in _SHAPE_TO_STUB and not promoted_to_ok:
+            stubs[_SHAPE_TO_STUB[shape]] += 1
+
+        if llm and llm.get("verdict"):
+            llm_analyzed += 1
+            llm_verdict_dist[llm["verdict"]] = llm_verdict_dist.get(llm["verdict"], 0) + 1
+            if llm.get("applied"):
+                llm_applied += 1
+                e_status = _LLM_TO_STATUS.get(llm["verdict"], s_status)
+                effective_status[e_status] += 1
+                if s_status == "ok" and e_status == "suspect":
+                    llm_overrode_to_suspect += 1
+                elif s_status != "ok" and e_status == "ok":
+                    llm_overrode_to_ok += 1
+                continue
+        effective_status[s_status] += 1
+
+    return {
+        "method_total": method_total,
+        "layer_count": layer_count,
+        "static_status": static_status,
+        "effective_status": effective_status,
+        "stubs": stubs,
+        "llm_verdict_dist": llm_verdict_dist,
+        "llm_analyzed": llm_analyzed,
+        "llm_applied": llm_applied,
+        "llm_overrode_to_suspect": llm_overrode_to_suspect,
+        "llm_overrode_to_ok": llm_overrode_to_ok,
+        "unconfirmed_unknown": unconfirmed_unknown,
+    }
 
 
 @app.get("/api/projects/{project_id}/summary")
@@ -746,7 +977,8 @@ def project_or_program_summary(project_id: str, program_id: str | None = None):
             if scope_fqcns:
                 placeholders = ",".join("?" * len(scope_fqcns))
                 methods = c.execute(
-                    f"""SELECT m.fqsig, m.layer, m.body_shape, m.throws_not_impl, m.sloc
+                    f"""SELECT m.fqsig, m.layer, m.body_shape, m.throws_not_impl, m.sloc,
+                               m.calls_json, m.delegation_target
                         FROM java_method_semantic m
                         WHERE m.project_id=? AND m.class_fqcn IN ({placeholders})""",
                     (project_id, *scope_fqcns),
@@ -755,7 +987,8 @@ def project_or_program_summary(project_id: str, program_id: str | None = None):
                 methods = []
         else:
             methods = c.execute(
-                """SELECT fqsig, layer, body_shape, throws_not_impl, sloc
+                """SELECT fqsig, layer, body_shape, throws_not_impl, sloc,
+                          calls_json, delegation_target
                    FROM java_method_semantic WHERE project_id=?""",
                 (project_id,),
             ).fetchall()
@@ -785,76 +1018,20 @@ def project_or_program_summary(project_id: str, program_id: str | None = None):
         )
 
     # ---------- compute verdict status (with LLM applied override) ----------
-    # body_shape (semantic) → status group via same rules as the verdict labels.
-    SHAPE_TO_STATUS = {
-        "empty": "suspect", "stub_throw": "suspect", "stub_literal": "suspect",
-        "stub_debug": "suspect",
-        "no_body": "ok", "abstract": "ok",
-        "delegation": "ok", "accessor": "ok",
-        "single_throw": "unknown", "single_return": "unknown",
-        "single_statement": "unknown", "empty_return": "unknown",
-        "multi_statement": "ok",
-    }
-    SHAPE_TO_STUB = {
-        "empty": "STUB_EMPTY",
-        "stub_throw": "STUB_NOT_IMPL",
-        "stub_literal": "STUB_PLACEHOLDER",
-        "stub_debug": "STUB_DEBUG_ONLY",
-    }
-    LLM_TO_STATUS = {
-        "REAL_DELEGATION": "ok", "REAL_LOGIC": "ok",
-        "STUB": "suspect", "NAME_MISMATCH": "suspect",
-        "MOVED_TO_SIBLING": "ok",     # dead-code 확인됨 — 정상 그룹
-        "UNCLEAR": "unknown",
-    }
-
+    # per-method 분류는 aggregate_methods 한 곳에서 (score 배치와 규칙 공유)
     llm_by_fqsig = {r["fqsig"]: dict(r) for r in llm_rows}
-
-    method_total = len(methods)
-    layer_count: dict[str, int] = {}
-    static_status = {"ok": 0, "suspect": 0, "unknown": 0}
-    effective_status = {"ok": 0, "suspect": 0, "unknown": 0}
-    stubs = {"STUB_EMPTY": 0, "STUB_NOT_IMPL": 0,
-             "STUB_PLACEHOLDER": 0, "STUB_DEBUG_ONLY": 0}
-    llm_verdict_dist: dict[str, int] = {}
-    llm_analyzed = 0
-    llm_applied = 0
-    llm_overrode_to_suspect = 0
-    llm_overrode_to_ok = 0
-
-    for m in methods:
-        m = dict(m)
-        layer = m.get("layer") or "UNKNOWN"
-        layer_count[layer] = layer_count.get(layer, 0) + 1
-
-        shape = m.get("body_shape") or ""
-        s_status = SHAPE_TO_STATUS.get(shape, "unknown")
-        static_status[s_status] += 1
-
-        llm = llm_by_fqsig.get(m["fqsig"])
-        # LLM 으로 ok 승격된 케이스 미리 판정 — 스텁 카운트도 같이 제외
-        promoted_to_ok = (
-            llm and llm.get("applied") and llm.get("verdict")
-            and LLM_TO_STATUS.get(llm["verdict"]) == "ok"
-        )
-
-        # 스텁 분류 카운트: 정적 body 가 stub-* 이고 LLM 으로 정상화 안 된 것만
-        if shape in SHAPE_TO_STUB and not promoted_to_ok:
-            stubs[SHAPE_TO_STUB[shape]] += 1
-
-        if llm and llm.get("verdict"):
-            llm_analyzed += 1
-            llm_verdict_dist[llm["verdict"]] = llm_verdict_dist.get(llm["verdict"], 0) + 1
-            if llm.get("applied"):
-                llm_applied += 1
-                e_status = LLM_TO_STATUS.get(llm["verdict"], s_status)
-                effective_status[e_status] += 1
-                if s_status == "ok" and e_status == "suspect":
-                    llm_overrode_to_suspect += 1
-                elif s_status != "ok" and e_status == "ok":
-                    llm_overrode_to_ok += 1
-                continue
-        effective_status[s_status] += 1
+    agg = aggregate_methods(methods, llm_by_fqsig)
+    method_total = agg["method_total"]
+    layer_count = agg["layer_count"]
+    static_status = agg["static_status"]
+    effective_status = agg["effective_status"]
+    stubs = agg["stubs"]
+    llm_verdict_dist = agg["llm_verdict_dist"]
+    llm_analyzed = agg["llm_analyzed"]
+    llm_applied = agg["llm_applied"]
+    llm_overrode_to_suspect = agg["llm_overrode_to_suspect"]
+    llm_overrode_to_ok = agg["llm_overrode_to_ok"]
+    unconfirmed_unknown = agg["unconfirmed_unknown"]
 
     # ---------- spec freshness (scope-aware) ----------
     issues = spec_issues.detect(project_id)
@@ -887,8 +1064,61 @@ def project_or_program_summary(project_id: str, program_id: str | None = None):
             "overrode_to_ok": llm_overrode_to_ok,
             "verdict_dist": llm_verdict_dist,
         },
+        "unconfirmed_unknown": unconfirmed_unknown,
         "spec_issues": spec_issue_by_kind,
     }
+
+
+@app.get("/api/projects/{project_id}/program-scores")
+def program_scores(project_id: str):
+    """program별 결정론 점수 입력값(메서드 effective 집계)을 한 번에.
+
+    coverage(O/P/X)는 경량 /programs 응답으로 프런트가 계산하고, 여기서는
+    content 비율 산출에 필요한 메서드 ok/suspect/unknown 만 program_id 별로
+    내려준다. 점수 공식 자체는 프런트(programScore)와 동일하게 한 곳에서 계산.
+    """
+    _get_project(project_id)
+    java_semantic.ensure_schema()
+    llm_analysis.ensure_schema()
+    with get_conn() as c:
+        fq_rows = c.execute(
+            """SELECT DISTINCT pr.program_id, sf.fqcn
+               FROM program_row pr
+               JOIN mapping m ON m.program_row_id = pr.id
+               JOIN source_file sf ON sf.id = m.source_file_id
+               WHERE pr.project_id=? AND sf.fqcn IS NOT NULL""",
+            (project_id,),
+        ).fetchall()
+        meth_rows = c.execute(
+            """SELECT fqsig, layer, body_shape, sloc, calls_json,
+                      delegation_target, class_fqcn
+               FROM java_method_semantic WHERE project_id=?""",
+            (project_id,),
+        ).fetchall()
+        llm_rows = c.execute(
+            "SELECT fqsig, verdict, applied FROM llm_method_analysis WHERE project_id=?",
+            (project_id,),
+        ).fetchall()
+
+    methods_by_fqcn: dict[str, list] = {}
+    for m in meth_rows:
+        methods_by_fqcn.setdefault(m["class_fqcn"], []).append(dict(m))
+    llm_by_fqsig = {r["fqsig"]: dict(r) for r in llm_rows}
+
+    prog_fqcns: dict[str, set] = {}
+    for r in fq_rows:
+        prog_fqcns.setdefault(r["program_id"], set()).add(r["fqcn"])
+
+    out: dict[str, dict] = {}
+    for pid, fqcns in prog_fqcns.items():
+        methods: list = []
+        for fq in fqcns:
+            methods.extend(methods_by_fqcn.get(fq, []))
+        es = aggregate_methods(methods, llm_by_fqsig)["effective_status"]
+        out[pid] = {
+            "ok": es["ok"], "suspect": es["suspect"], "unknown": es["unknown"],
+        }
+    return out
 
 
 @app.get("/api/projects/{project_id}/spec-issues.csv")

@@ -264,7 +264,11 @@ public class JavaSemanticAnalyzer {
         if (!intersect(anns, CONTROLLER_ANN).isEmpty()) return "CONTROLLER";
         if (!intersect(anns, SERVICE_ANN).isEmpty()) return "SERVICE";
         if (!intersect(anns, REPOSITORY_ANN).isEmpty()) return "REPOSITORY";
-        if (!intersect(anns, MAPPER_ANN).isEmpty()) return "MAPPER";
+        if (!intersect(anns, MAPPER_ANN).isEmpty())
+            // @Mapper is shared by two unrelated libraries. MapStruct (org.mapstruct)
+            // is compile-time object<->object conversion → UTIL. MyBatis
+            // (org.apache.ibatis) is real DB access → MAPPER.
+            return isMapStructMapper(decl) ? "UTIL" : "MAPPER";
         if (!intersect(anns, ENTITY_ANN).isEmpty()) return "ENTITY";
         if (!intersect(anns, CONFIG_ANN).isEmpty()) return "CONFIG";
         if (!intersect(anns, COMPONENT_ANN).isEmpty()) return "COMPONENT";
@@ -412,6 +416,17 @@ public class JavaSemanticAnalyzer {
 
     private List<String> annotationNames(List<AnnotationExpr> anns) {
         return anns.stream().map(a -> a.getNameAsString()).collect(Collectors.toList());
+    }
+
+    /** True if the @Mapper on this type is MapStruct (org.mapstruct), not MyBatis. */
+    private boolean isMapStructMapper(ClassOrInterfaceDeclaration decl) {
+        return decl.findCompilationUnit().map(cu ->
+                cu.getImports().stream().anyMatch(imp -> {
+                    String n = imp.getNameAsString();
+                    // covers `import org.mapstruct.Mapper;` and `import org.mapstruct.*;`
+                    return n.equals("org.mapstruct") || n.startsWith("org.mapstruct.");
+                })
+        ).orElse(false);
     }
 
     private Set<String> intersect(Set<String> a, Set<String> b) {

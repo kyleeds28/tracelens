@@ -86,6 +86,16 @@ def init_db(db_path: Path) -> None:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(mapping)").fetchall()]
         if "manual_override" not in cols:
             conn.execute("ALTER TABLE mapping ADD COLUMN manual_override INTEGER DEFAULT 0")
+        # cached per-file size derived from analyze_file (same metric as the
+        # per-method sloc badge): sum of function sloc, and function count.
+        if "code_sloc_sum" not in cols:
+            conn.execute("ALTER TABLE mapping ADD COLUMN code_sloc_sum INTEGER")
+        if "method_cnt" not in cols:
+            conn.execute("ALTER TABLE mapping ADD COLUMN method_cnt INTEGER")
+        # file-level code lines (whole file minus blank/comment) — includes
+        # field declarations, so DTO/Entity data classes are non-zero.
+        if "file_code_lines" not in cols:
+            conn.execute("ALTER TABLE mapping ADD COLUMN file_code_lines INTEGER")
 
 
 @contextmanager

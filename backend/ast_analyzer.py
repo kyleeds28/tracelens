@@ -102,7 +102,10 @@ CLASS_TYPES["tsx"] = CLASS_TYPES["typescript"]
 
 # ---- Stub / debug / framework patterns (could later move to signals.yaml) ----
 
-JAVA_NOT_IMPL_EXCEPTIONS = {"UnsupportedOperationException", "NotImplementedException"}
+# UnsupportedOperationException = "이 연산은 (설계상) 지원하지 않음" — 계약 이행용 의도적 미지원일 수 있음
+JAVA_UNSUPPORTED_EXCEPTIONS = {"UnsupportedOperationException"}
+# NotImplementedException = "아직 안 만듦" — @Override 여부와 무관하게 미구현 신호로 유지
+JAVA_NOT_IMPL_EXCEPTIONS = {"NotImplementedException"}
 JAVA_STUB_LITERALS = {"null", "false", "true", "0", "0L", "0.0", "0.0f", "\"\""}
 JAVA_STUB_EXPRESSIONS = {
     "new ArrayList<>()", "new HashMap<>()", "new HashSet<>()",
@@ -165,7 +168,7 @@ VERDICT_LABEL_KR = {
     "HANDLER_DELEGATION":  "서비스로 위임",
     "HANDLER_PROCESSING":  "컨트롤러 처리",
     "SERVICE_DELEGATION":  "타 메서드로 위임",
-    "DELEGATION":          "위임만",
+    "DELEGATION":          "위임",
     "ACCESSOR":            "필드 접근자",
     "GENERATED":           "프레임워크 자동 생성",
     "DECLARATION":         "인터페이스 선언",
@@ -372,6 +375,8 @@ def _classify_java_single_stmt(stmt, source_bytes: bytes) -> str:
                 t = _field(c, "type")
                 if t is not None:
                     name = _text(t, source_bytes).strip()
+                    if name in JAVA_UNSUPPORTED_EXCEPTIONS:
+                        return "stub_unsupported"
                     if name in JAVA_NOT_IMPL_EXCEPTIONS:
                         return "stub_throw"
                 break
@@ -430,7 +435,7 @@ def _classify_java_body(body_node, source_bytes: bytes) -> str:
     if leading_trivial:
         tail_shape = _classify_java_single_stmt(stmts[-1], source_bytes)
         if tail_shape in ("delegation", "accessor", "stub_literal",
-                          "stub_throw", "stub_debug", "single_return"):
+                          "stub_throw", "stub_unsupported", "stub_debug", "single_return"):
             return tail_shape
 
     return "multi_statement"
@@ -562,6 +567,13 @@ def _verdict(body_class: str, class_kind: str, class_anns: list[str],
         return "ABSTRACT"
 
     # Explicit stub markers
+    if body_class == "stub_unsupported":
+        # @Override + throw UnsupportedOperationException 는 "지원하지 않는 선택적 연산"
+        # 관용구(불변 컬렉션 add(), 읽기전용 스트림 리스너 등) — 상속 계약을 이행하는
+        # 의도된 구현이지 미완성이 아니다. 계약 컨텍스트(@Override)가 있을 때만 정상 처리.
+        if "Override" in mset:
+            return "ABSTRACT"
+        return "STUB_NOT_IMPL"
     if body_class == "stub_throw":
         return "STUB_NOT_IMPL"
     if body_class == "stub_literal":

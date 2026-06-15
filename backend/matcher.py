@@ -14,11 +14,118 @@ Strategy hierarchy (strongest → weakest):
 kind_norm + menu_url + category_l1 같은 다른 컬럼의 단서를 활용해
 가장 그럴듯한 파일 하나를 고른다.
 """
+import re
 from typing import Any
 
 # match_strategy → 화면에 보일 status
-OK_STRATEGIES = {"fqcn", "auto_name", "hint_disambig"}
+OK_STRATEGIES = {"fqcn", "auto_name", "hint_disambig", "auto_locality"}
 PARTIAL_STRATEGIES = {"simple_name", "filename_ci", "any_name"}
+
+# Tier A 자동 확정: 형제 O 매칭이 최소 이 개수 이상 수렴해야 패키지 prefix 를 신뢰.
+AUTO_LOCALITY_MIN_SIBLINGS = 2
+
+_CAMEL_TOKEN_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z]*|[0-9]+")
+
+
+def _camel_tokens(name: str) -> list[str]:
+    return _CAMEL_TOKEN_RE.findall(name or "")
+
+
+def _role_token(name: str) -> str:
+    """이름의 끝 CamelCase 토큰(역할) 을 소문자로. 역할 접미사가 없으면 ''.
+
+    범용: 특정 어휘 사전 없이 'Entity/Controller/Service/DTO/...' 같은
+    역할 토큰을 이름 구조만으로 뽑는다. 단일 토큰(역할 접미사 없음) 이면 '' 반환.
+    """
+    toks = _camel_tokens(name)
+    if len(toks) < 2:
+        return ""
+    return toks[-1].lower()
+
+
+def _common_pkg_prefix(packages: list[str]) -> str:
+    """패키지들의 '.' 세그먼트 단위 공통 prefix. 기능 묶음 루트를 잡는 데 사용."""
+    segs = [p.split(".") for p in packages if p]
+    if not segs:
+        return ""
+    out: list[str] = []
+    for parts in zip(*segs):
+        first = parts[0]
+        if all(x == first for x in parts):
+            out.append(first)
+        else:
+            break
+    return ".".join(out)
+
+
+def auto_match_by_locality(program_rows: list[dict],
+                           mapping_by_row: dict[int, dict],
+                           files: list[dict]) -> list[dict]:
+    """Tier A — 구조 신호만으로 X(api) 행을 엄격 유일일 때만 자동 확정.
+
+    도메인 단어/사전 없이 어느 프로젝트에나 통하도록 두 신호만 사용:
+      1) 같은 program 의 O 매칭(형제) 들의 패키지 '공통 prefix' = 기능 묶음 위치
+      2) 스펙 모듈명의 역할 토큰(끝 CamelCase) 과 같은 역할의 .java 클래스가
+         그 subtree 안에 '정확히 1개' 일 때만 매칭
+
+    엄격 유일이 아니면(수렴 안 됨 / 후보 0·2개 / 같은 역할 스펙행 다수) 손대지 않는다.
+    반환: [{row_id, source_file_id, strategy='auto_locality'}, ...]
+    """
+    fid = {f["id"]: f for f in files}
+    java_files = [
+        f for f in files
+        if (f.get("ext") or "").lower() == ".java" and f.get("package")
+    ]
+
+    by_prog: dict[Any, list[dict]] = {}
+    for r in program_rows:
+        by_prog.setdefault(r.get("program_id"), []).append(r)
+
+    results: list[dict] = []
+    for rows in by_prog.values():
+        sib_pkgs: list[str] = []
+        role_count: dict[str, int] = {}
+        for r in rows:
+            role = _role_token(_norm(r.get("module_name")))
+            if role:
+                role_count[role] = role_count.get(role, 0) + 1
+            mp = mapping_by_row.get(r["id"])
+            if mp and mp.get("status") == "O" and mp.get("source_file_id"):
+                f = fid.get(mp["source_file_id"])
+                if f and f.get("package"):
+                    sib_pkgs.append(f["package"])
+
+        if len(sib_pkgs) < AUTO_LOCALITY_MIN_SIBLINGS:
+            continue
+        prefix = _common_pkg_prefix(sib_pkgs)
+        if not prefix:
+            continue
+        subtree = [
+            f for f in java_files
+            if f["package"] == prefix or f["package"].startswith(prefix + ".")
+        ]
+
+        for r in rows:
+            mp = mapping_by_row.get(r["id"])
+            if not mp or mp.get("status") != "X" or mp.get("manual_override"):
+                continue
+            if r.get("kind_norm") != "api":
+                continue
+            role = _role_token(_norm(r.get("module_name")))
+            if not role or role_count.get(role, 0) != 1:
+                # 역할 접미사 없음 or 같은 역할 스펙행이 둘 이상(경쟁) → 자동 금지
+                continue
+            matches = [
+                f for f in subtree
+                if _role_token(f.get("simple_name") or "") == role
+            ]
+            if len(matches) == 1:
+                results.append({
+                    "row_id": r["id"],
+                    "source_file_id": matches[0]["id"],
+                    "strategy": "auto_locality",
+                })
+    return results
 
 
 def _norm(s: Any) -> str:

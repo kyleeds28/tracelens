@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS llm_method_analysis (
     confidence REAL,
     reasoning TEXT,
     suggested_target_intent TEXT,
+    evidence_quote TEXT,
     concerns_json TEXT,
     raw_response TEXT,
     error TEXT,
@@ -81,6 +82,8 @@ def ensure_schema() -> None:
         cols = [row[1] for row in c.execute("PRAGMA table_info(llm_method_analysis)").fetchall()]
         if "applied" not in cols:
             c.execute("ALTER TABLE llm_method_analysis ADD COLUMN applied INTEGER DEFAULT 0")
+        if "evidence_quote" not in cols:
+            c.execute("ALTER TABLE llm_method_analysis ADD COLUMN evidence_quote TEXT")
 
 
 # ---------------- prompt ----------------
@@ -262,6 +265,9 @@ return_type : {ctx.get('return_type','-')}
                        reasoning 에 어느 대체 구현 클래스가 대신 동작하는지 명시할 것
   - UNCLEAR         : 판단 모호 (확신 없을 때만, confidence 낮춰서)
 - reasoning 에는 본문 또는 대체 구현 정보에서 인용한 구체 근거를 1~2문장으로.
+- evidence_quote 에는 위 판정의 결정적 근거가 된 **본문 코드 한 줄을 원문 그대로** 적으세요
+  (재구성·요약·번역 금지, 공백/세미콜론까지 그대로). 본문이 비어 근거가 될 줄이
+  없으면 빈 문자열 "" 로 두세요.
 - 두 정적 분석이 서로 다른 신호를 줄 때 (예: tree-sitter 는 "보류" 인데 SymbolSolver 는
   fan_in=0) 그 점을 reasoning 에 짚어도 됩니다.
 
@@ -270,6 +276,7 @@ return_type : {ctx.get('return_type','-')}
   "verdict": "REAL_DELEGATION" | "REAL_LOGIC" | "STUB" | "NAME_MISMATCH" | "MOVED_TO_SIBLING" | "UNCLEAR",
   "confidence": 0.0~1.0,
   "reasoning": "한글 1~2문장",
+  "evidence_quote": "판정 근거가 된 본문 코드 한 줄 원문 (없으면 \"\")",
   "suggested_target_intent": "호출 대상 또는 본문 로직의 추정 역할 (한글 한 줄)",
   "concerns": ["짧은 메모", "..."]
 }}
@@ -333,6 +340,7 @@ def _parse_response(text: str) -> dict:
         "verdict": verdict,
         "confidence": conf,
         "reasoning": str(obj.get("reasoning", "")).strip(),
+        "evidence_quote": str(obj.get("evidence_quote", "")).strip(),
         "suggested_target_intent": str(obj.get("suggested_target_intent", "")).strip(),
         "concerns": [str(x).strip() for x in (obj.get("concerns") or [])][:5],
     }
@@ -371,7 +379,7 @@ def get_cached(project_id: str, fqsig: str, body_hash: str,
     with get_conn() as c:
         row = c.execute(
             """SELECT verdict, confidence, reasoning, suggested_target_intent,
-                      concerns_json, duration_ms, created_at, error, applied
+                      evidence_quote, concerns_json, duration_ms, created_at, error, applied
                FROM llm_method_analysis
                WHERE project_id=? AND fqsig=? AND body_hash=? AND model=?""",
             (project_id, fqsig, body_hash, model),
@@ -386,7 +394,7 @@ def get_cached_by_fqsig(project_id: str, fqsig: str,
     with get_conn() as c:
         row = c.execute(
             """SELECT verdict, confidence, reasoning, suggested_target_intent,
-                      concerns_json, duration_ms, created_at, error, body_hash, applied
+                      evidence_quote, concerns_json, duration_ms, created_at, error, body_hash, applied
                FROM llm_method_analysis
                WHERE project_id=? AND fqsig=? AND model=?
                ORDER BY id DESC LIMIT 1""",
@@ -477,12 +485,12 @@ def analyze_method(project_id: str, ctx: dict,
             """INSERT OR REPLACE INTO llm_method_analysis
             (project_id, fqsig, body_hash, model,
              verdict, confidence, reasoning, suggested_target_intent,
-             concerns_json, raw_response, duration_ms)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+             evidence_quote, concerns_json, raw_response, duration_ms)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 project_id, fqsig, bh, model,
                 parsed["verdict"], parsed["confidence"], parsed["reasoning"],
-                parsed["suggested_target_intent"],
+                parsed["suggested_target_intent"], parsed["evidence_quote"],
                 json.dumps(parsed["concerns"], ensure_ascii=False),
                 raw[:4000], dur,
             ),

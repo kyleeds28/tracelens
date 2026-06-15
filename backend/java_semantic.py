@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable
@@ -31,6 +32,14 @@ def _java_executable() -> str:
     java_home = os.environ.get("JAVA_HOME")
     if java_home:
         exe = Path(java_home) / "bin" / ("java.exe" if os.name == "nt" else "java")
+        if exe.exists():
+            return str(exe)
+    # The jar is compiled to Java 17 (build.py --release 17). The first `java` on
+    # PATH may be an old JRE (e.g. 8) that cannot load it → UnsupportedClassVersionError.
+    # Prefer the `java` sitting next to `javac` — a real JDK that matches the build toolchain.
+    javac = shutil.which("javac")
+    if javac:
+        exe = Path(javac).with_name("java.exe" if os.name == "nt" else "java")
         if exe.exists():
             return str(exe)
     return "java"
